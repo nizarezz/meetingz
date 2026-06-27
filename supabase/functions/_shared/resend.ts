@@ -24,26 +24,26 @@ export async function sendEmail(
   subject: string,
   html: string
 ): Promise<void> {
-  const apiKey = Deno.env.get("RESEND_API_KEY");
-  if (!apiKey) throw new Error("RESEND_API_KEY not set");
+  const apiKey = Deno.env.get("BREVO_API_KEY");
+  if (!apiKey) throw new Error("BREVO_API_KEY not set");
 
-  const res = await fetch("https://api.resend.com/emails", {
+  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
+      "api-key": apiKey,
     },
     body: JSON.stringify({
-      from: "Meeting Timer Pro <noreply@yourdomain.com>",
-      to,
+      sender: { name: "Terra Meetings", email: "nizarrtg@gmail.com" },
+      to: [{ email: to }],
       subject,
-      html,
+      htmlContent: html,
     }),
   });
 
   if (!res.ok) {
     const body = await res.text();
-    console.error("Resend error:", body);
+    console.error("Brevo error:", body);
     throw new Error(`Failed to send email: ${body}`);
   }
 }

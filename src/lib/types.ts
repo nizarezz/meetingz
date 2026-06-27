@@ -16,6 +16,8 @@ export interface AgendaItem {
   title: string;
   duration: number;
   assignee_email?: string;
+  presenter?: string;
+  notes?: string;
 }
 
 export interface ApiUser {
@@ -64,6 +66,7 @@ export interface Outcome {
 export interface Meeting {
   id: string;
   title: string;
+  description?: string | null;
   department: string;
   meeting_type: string;
   vibe?: string | null;
@@ -132,6 +135,7 @@ export interface Template {
 
 export interface CreateMeetingInput {
   title: string;
+  description?: string;
   department: string;
   meeting_type: string;
   scheduled_duration: number;

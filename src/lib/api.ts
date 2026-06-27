@@ -55,6 +55,7 @@ export const meetingsApi = {
   get: (id: string) => api().get(`meetings/${id}`).json<Meeting>(),
   create: (input: {
     title: string;
+    description?: string;
     department: string;
     meeting_type: string;
     scheduled_duration: number;

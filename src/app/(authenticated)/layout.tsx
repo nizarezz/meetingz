@@ -64,7 +64,7 @@ export default function AuthenticatedLayout({
         </main>
         <footer className="border-t border-border bg-sidebar/60 px-6 py-4 text-xs text-muted-foreground md:px-10">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <span>&copy; {new Date().getFullYear()} Meeting Timer Pro &middot; Rooted in Efficiency</span>
+            <span>&copy; {new Date().getFullYear()} Terra Meetings &middot; Rooted in Efficiency</span>
             <div className="flex items-center gap-5">
               <span className="hover:text-foreground cursor-default">Privacy</span>
               <span className="hover:text-foreground cursor-default">Terms</span>

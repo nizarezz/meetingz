@@ -3,10 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 import React from "react";
 import ReminderEmail from "@/emails/reminder";
 import OutcomePromptEmail from "@/emails/outcome-prompt";
+import InvitationEmail from "@/emails/invitation";
 
 const templates: Record<string, (props: Record<string, unknown>) => React.ReactElement> = {
   reminder: (props) => <ReminderEmail {...(props as any)} />,
   "outcome-prompt": (props) => <OutcomePromptEmail {...(props as any)} />,
+  invitation: (props) => <InvitationEmail {...(props as any)} />,
 };
 
 export async function POST(req: NextRequest) {
