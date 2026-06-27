@@ -1,0 +1,1 @@
+ALTER TABLE outcomes ADD COLUMN IF NOT EXISTS comments jsonb NOT NULL DEFAULT '[]';

@@ -92,7 +92,23 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "PATCH" && id && action === "deactivate") {
-      requireRole(caller, SUPER_ADMIN_ROLES);
+      requireRole(caller, ADMIN_ROLES);
+
+      if (id === caller.id) return err("Cannot deactivate yourself", 403);
+
+      const { data: target } = await svc
+        .from("users")
+        .select("role")
+        .eq("id", id)
+        .eq("team_id", caller.team_id)
+        .is("deleted_at", null)
+        .single();
+
+      if (!target) return err("User not found", 404);
+
+      if (!SUPER_ADMIN_ROLES.includes(caller.role as any) && ADMIN_ROLES.includes(target.role as any)) {
+        return err("Cannot deactivate an admin or super admin", 403);
+      }
 
       const { error } = await svc
         .from("users")

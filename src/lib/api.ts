@@ -6,6 +6,7 @@ import type {
   Outcome,
   PrimaryOutcome,
   ActionItem,
+  Comment,
   ApiUser,
   UserRole,
   Participant,
@@ -16,6 +17,7 @@ import type {
   MeetingStatus,
   AgendaItem,
   PaginatedResponse,
+  LiveMeeting,
 } from "./types";
 
 async function getToken() {
@@ -155,9 +157,25 @@ export const participantsApi = {
   remove: (id: string) => api().delete(`participants/${id}`).json<{ deleted: true }>(),
 };
 
+// ---------- Comments ----------
+export const commentsApi = {
+  list: (meetingId: string) => {
+    const searchParams = new URLSearchParams({ meeting_id: meetingId });
+    return api().get("comments", { searchParams }).json<Comment[]>();
+  },
+  add: (meetingId: string, text: string) =>
+    api().post("comments", { json: { meeting_id: meetingId, text } }).json<Comment>(),
+};
+
 // ---------- Departments ----------
 export const departmentsApi = {
   list: () => api().get("departments").json<string[]>(),
+};
+
+// ---------- Public (no auth) ----------
+export const publicMeetingsApi = {
+  getByShareToken: (shareToken: string) =>
+    ky.get(`${FUNCTIONS_BASE}/meetings/public/${shareToken}`).json<LiveMeeting>(),
 };
 
 // ---------- Setup ----------

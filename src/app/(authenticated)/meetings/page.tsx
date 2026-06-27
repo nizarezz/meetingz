@@ -3,12 +3,16 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useMeetings } from "@/lib/hooks/use-meetings";
+import { useRealtimeInvalidation } from "@/lib/hooks/use-realtime";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { Plus, Search, Calendar, Clock, Users, MoreVertical, Mic, CheckCircle, FileEdit } from "lucide-react";
 import { format } from "date-fns";
+import { useAuth } from "@/components/providers/auth-provider";
+import { ADMIN_ROLES } from "@/lib/types";
+import type { UserRole } from "@/lib/types";
 
 type Tab = "upcoming" | "live" | "past" | "drafts";
 
@@ -34,9 +38,15 @@ const TAB_BG: Record<Tab, string> = {
 };
 
 export default function MeetingsPage() {
+  const { role } = useAuth();
+  const isAdmin = ADMIN_ROLES.includes(role as UserRole);
   const [tab, setTab] = useState<Tab>("upcoming");
   const [search, setSearch] = useState("");
   const { data, isLoading } = useMeetings({ perPage: 100 });
+
+  useRealtimeInvalidation([
+    { channel: "meetings-list", table: "meetings", events: ["*"], queryKeys: [["meetings"]] },
+  ]);
 
   const rawMeetings = data?.data ?? [];
 
@@ -87,12 +97,14 @@ export default function MeetingsPage() {
             <h2 className="font-display text-4xl font-bold tracking-tight">Workspace</h2>
             <p className="mt-1 text-muted-foreground text-lg">Manage your schedule and collaborative sessions.</p>
           </div>
-          <Link href="/meetings/new">
-            <Button className="hidden md:flex items-center gap-2 rounded-xl px-6 py-6 font-bold shadow-sm">
-              <Plus className="h-4 w-4" />
-              Plan Meeting
-            </Button>
-          </Link>
+          {isAdmin && (
+            <Link href="/meetings/new">
+              <Button className="hidden md:flex items-center gap-2 rounded-xl px-6 py-6 font-bold shadow-sm">
+                <Plus className="h-4 w-4" />
+                Plan Meeting
+              </Button>
+            </Link>
+          )}
         </div>
 
         {/* Tabs */}
@@ -163,7 +175,7 @@ export default function MeetingsPage() {
             <p className="text-lg font-medium text-muted-foreground">
               {search ? "No meetings match your search" : `No ${tab} meetings`}
             </p>
-            {!search && tab !== "past" && (
+            {!search && tab !== "past" && isAdmin && (
               <Link href="/meetings/new" className="mt-4">
                 <Button className="rounded-xl">
                   <Plus className="mr-2 h-4 w-4" /> Plan Meeting
@@ -281,11 +293,13 @@ export default function MeetingsPage() {
       </div>
 
       {/* Mobile FAB */}
-      <Link href="/meetings/new" className="fixed bottom-6 right-6 md:hidden z-30">
-        <Button className="h-14 w-14 rounded-full shadow-lg">
-          <Plus className="h-6 w-6" />
-        </Button>
-      </Link>
+      {isAdmin && (
+        <Link href="/meetings/new" className="fixed bottom-6 right-6 md:hidden z-30">
+          <Button className="h-14 w-14 rounded-full shadow-lg">
+            <Plus className="h-6 w-6" />
+          </Button>
+        </Link>
+      )}
     </div>
   );
 }

@@ -9,6 +9,8 @@ import {
   LayoutDashboard, Calendar, ClipboardList, BarChart3,
   Building2, User, Plus, HelpCircle, LifeBuoy, LogOut, Leaf,
 } from "lucide-react";
+import { ADMIN_ROLES } from "@/lib/types";
+import type { UserRole } from "@/lib/types";
 
 const sideNav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -22,7 +24,7 @@ const sideNav = [
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { signOut } = useAuth();
+  const { signOut, role } = useAuth();
   const qc = useQueryClient();
 
   async function handleSignOut() {
@@ -81,14 +83,16 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           })}
         </nav>
 
-        <Link
-          href="/meetings/new"
-          onClick={onClose}
-          className="mx-1 mb-6 flex items-center justify-center gap-2 rounded-xl bg-primary py-3 font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-        >
-          <Plus className="h-4 w-4" />
-          New Meeting
-        </Link>
+        {ADMIN_ROLES.includes(role as UserRole) && (
+          <Link
+            href="/meetings/new"
+            onClick={onClose}
+            className="mx-1 mb-6 flex items-center justify-center gap-2 rounded-xl bg-primary py-3 font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+          >
+            <Plus className="h-4 w-4" />
+            New Meeting
+          </Link>
+        )}
 
         <div className="flex flex-col gap-1 border-t border-sidebar-border pt-4">
           <a

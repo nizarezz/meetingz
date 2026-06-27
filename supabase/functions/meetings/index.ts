@@ -14,10 +14,55 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
 
   try {
-    const caller = await resolveCaller(req);
     const url    = new URL(req.url);
     const parts  = url.pathname.replace(/^\/meetings\/?/, "").split("/").filter(Boolean);
     const id     = parts[0] ?? null;
+
+    // --- Public share endpoint (no JWT required) ---
+    if (req.method === "GET" && parts[0] === "public" && parts[1]) {
+      const svc = serviceClient();
+      const { data, error } = await svc
+        .from("meetings")
+        .select("id, title, status, scheduled_at, department, meeting_type, agenda_items, active_item_index, is_timer_running, timer_started_at, timer_item_started_at, timer_base_total, timer_base_item, paused_at")
+        .eq("share_token", parts[1])
+        .is("deleted_at", null)
+        .single();
+
+      if (error || !data) return err("Meeting not found", 404);
+
+      const now = new Date();
+      const scheduled = data.scheduled_at ? new Date(data.scheduled_at) : null;
+
+      let state: string;
+      if (data.status === "active") {
+        state = "active";
+      } else if (data.status === "planned") {
+        const fiveMinBefore = scheduled ? new Date(scheduled.getTime() - 5 * 60 * 1000) : null;
+        state = fiveMinBefore && now >= fiveMinBefore ? "starting_soon" : "upcoming";
+      } else {
+        state = "ended";
+      }
+
+      const base = { id: data.id, title: data.title, state, scheduled_at: data.scheduled_at, department: data.department, meeting_type: data.meeting_type };
+
+      if (state === "active" || state === "starting_soon") {
+        return ok({
+          ...base,
+          agenda_items: data.agenda_items,
+          active_item_index: data.active_item_index,
+          is_timer_running: data.is_timer_running,
+          timer_started_at: data.timer_started_at,
+          timer_item_started_at: data.timer_item_started_at,
+          timer_base_total: data.timer_base_total,
+          timer_base_item: data.timer_base_item,
+          paused_at: data.paused_at,
+        });
+      }
+
+      return ok(base);
+    }
+
+    const caller = await resolveCaller(req);
 
     if (req.method === "GET" && !id) {
       const status     = url.searchParams.get("status");
@@ -37,6 +82,7 @@ Deno.serve(async (req: Request) => {
           agenda_items, scheduled_at, created_at,
           created_by, facilitator_id,
           is_timer_running, active_item_index,
+          share_token,
           meeting_participants (
             id, user_id, role, department,
             users ( id, name, email )

@@ -20,6 +20,23 @@ export interface AgendaItem {
   notes?: string;
 }
 
+export interface LiveMeeting {
+  id: string;
+  title: string;
+  state: "active" | "starting_soon" | "upcoming" | "ended";
+  scheduled_at: string | null;
+  department?: string;
+  meeting_type?: string;
+  agenda_items?: AgendaItem[];
+  active_item_index?: number;
+  is_timer_running?: boolean;
+  timer_started_at?: string | null;
+  timer_item_started_at?: string | null;
+  timer_base_total?: number;
+  timer_base_item?: number;
+  paused_at?: string | null;
+}
+
 export interface ApiUser {
   id: string;
   email: string;
@@ -50,6 +67,15 @@ export interface ActionItem {
   assignee?: string;
   due?: string;
   done?: boolean;
+}
+
+export interface Comment {
+  id: string;
+  meeting_id: string;
+  user_id: string;
+  text: string;
+  created_at: string;
+  users?: { name: string; role: string };
 }
 
 export interface Outcome {
@@ -88,6 +114,7 @@ export interface Meeting {
   team_id?: string;
   participants?: Participant[];
   outcomes?: Outcome | Outcome[];
+  share_token?: string;
   deleted_at?: string | null;
 }
 

@@ -5,7 +5,6 @@ export function useTimer(meetingId: string) {
   return useQuery({
     queryKey: ["timer", meetingId],
     queryFn: () => timerApi.get(meetingId),
-    refetchInterval: 5000,
     enabled: !!meetingId,
   });
 }

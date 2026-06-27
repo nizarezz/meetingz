@@ -1,7 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/providers/auth-provider";
+import { ADMIN_ROLES } from "@/lib/types";
+import type { UserRole } from "@/lib/types";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -40,6 +43,13 @@ const DURATION_OPTIONS = [
 
 export default function NewMeetingPage() {
   const router = useRouter();
+  const { role } = useAuth();
+
+  useEffect(() => {
+    if (!ADMIN_ROLES.includes(role as UserRole)) {
+      router.replace("/meetings");
+    }
+  }, [role, router]);
   const createMeeting = useCreateMeeting();
   const { data: departments } = useDepartments();
   const { data: templates } = useTemplates();

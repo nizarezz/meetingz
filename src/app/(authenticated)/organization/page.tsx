@@ -141,12 +141,16 @@ export default function OrganizationPage() {
           <TabsTrigger value="overview" className="pb-3 text-lg font-semibold data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none bg-transparent shadow-none px-0 data-[state=active]:shadow-none">
             Overview
           </TabsTrigger>
-          <TabsTrigger value="members" className="pb-3 text-lg font-semibold data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none bg-transparent shadow-none px-0 data-[state=active]:shadow-none">
-            Members
-          </TabsTrigger>
-          <TabsTrigger value="templates" className="pb-3 text-lg font-semibold data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none bg-transparent shadow-none px-0 data-[state=active]:shadow-none">
-            Templates
-          </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="members" className="pb-3 text-lg font-semibold data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none bg-transparent shadow-none px-0 data-[state=active]:shadow-none">
+              Members
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="templates" className="pb-3 text-lg font-semibold data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none bg-transparent shadow-none px-0 data-[state=active]:shadow-none">
+              Templates
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ── Overview Tab ── */}
@@ -257,7 +261,7 @@ export default function OrganizationPage() {
                               <SelectContent>
                                 <SelectItem value="member">Member</SelectItem>
                                 <SelectItem value="dept_admin">Dept Admin</SelectItem>
-                                <SelectItem value="super_admin">Super Admin</SelectItem>
+                                {isSuperAdmin && <SelectItem value="super_admin">Super Admin</SelectItem>}
                               </SelectContent>
                             </Select>
                           )}
@@ -307,7 +311,7 @@ export default function OrganizationPage() {
                             <Check className="mr-1 h-3 w-3" /> Approve
                           </Button>
                         ) : null}
-                        {isSuperAdmin && (
+                        {(isSuperAdmin || (isAdmin && !ADMIN_ROLES.includes(u.role as UserRole))) && (
                           <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm("Deactivate this user?")) deactivateUser.mutate(u.id); }}>
                             <X className="h-3 w-3" />
                           </Button>

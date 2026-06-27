@@ -2,6 +2,9 @@
 
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/providers/auth-provider";
+import { ADMIN_ROLES } from "@/lib/types";
+import type { UserRole } from "@/lib/types";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -36,6 +39,13 @@ export default function EditTemplatePage({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  const { role } = useAuth();
+
+  useEffect(() => {
+    if (!ADMIN_ROLES.includes(role as UserRole)) {
+      router.replace("/organization");
+    }
+  }, [role, router]);
   const { data: template, isLoading } = useTemplate(id);
   const updateTemplate = useUpdateTemplate();
   const { data: departments } = useDepartments();
