@@ -15,18 +15,15 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET" && parts[0] === "preferences") {
       const { data, error } = await svc
         .from("notification_preferences")
-        .select("meeting_reminder_email, meeting_reminder_push, outcome_prompt_email, outcome_prompt_push, daily_digest_email")
+        .select("meeting_reminder_email, outcome_prompt_email")
         .eq("user_id", caller.id)
         .maybeSingle();
 
       if (error) return err(error.message);
       return ok(
         data ?? {
-          meeting_reminder_email: false,
-          meeting_reminder_push: false,
-          outcome_prompt_email: false,
-          outcome_prompt_push: false,
-          daily_digest_email: false,
+          meeting_reminder_email: true,
+          outcome_prompt_email: true,
         }
       );
     }
@@ -35,10 +32,7 @@ Deno.serve(async (req: Request) => {
       const body = await req.json();
       const allowed = [
         "meeting_reminder_email",
-        "meeting_reminder_push",
         "outcome_prompt_email",
-        "outcome_prompt_push",
-        "daily_digest_email",
       ];
       const patch: Record<string, unknown> = {};
 
@@ -51,7 +45,7 @@ Deno.serve(async (req: Request) => {
       const { data, error } = await svc
         .from("notification_preferences")
         .upsert({ user_id: caller.id, ...patch }, { onConflict: "user_id" })
-        .select("meeting_reminder_email, meeting_reminder_push, outcome_prompt_email, outcome_prompt_push, daily_digest_email")
+        .select("meeting_reminder_email, outcome_prompt_email")
         .single();
 
       if (error) return err(error.message);

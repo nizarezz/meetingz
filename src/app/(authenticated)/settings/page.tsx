@@ -134,29 +134,14 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <SwitchRow
-            label="Meeting Reminder (Email)"
+            label="Meeting Reminder"
             checked={prefs?.meeting_reminder_email ?? true}
             onChange={(v) => updatePrefs.mutate({ meeting_reminder_email: v })}
           />
           <SwitchRow
-            label="Meeting Reminder (Push)"
-            checked={prefs?.meeting_reminder_push ?? false}
-            onChange={(v) => updatePrefs.mutate({ meeting_reminder_push: v })}
-          />
-          <SwitchRow
-            label="Outcome Prompt (Email)"
+            label="Outcome Prompt"
             checked={prefs?.outcome_prompt_email ?? true}
             onChange={(v) => updatePrefs.mutate({ outcome_prompt_email: v })}
-          />
-          <SwitchRow
-            label="Outcome Prompt (Push)"
-            checked={prefs?.outcome_prompt_push ?? false}
-            onChange={(v) => updatePrefs.mutate({ outcome_prompt_push: v })}
-          />
-          <SwitchRow
-            label="Daily Digest (Email)"
-            checked={prefs?.daily_digest_email ?? false}
-            onChange={(v) => updatePrefs.mutate({ daily_digest_email: v })}
           />
         </CardContent>
       </Card>

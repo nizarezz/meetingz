@@ -107,10 +107,7 @@ export interface TimerState {
 export interface NotificationPreferences {
   user_id?: string;
   meeting_reminder_email: boolean;
-  meeting_reminder_push: boolean;
   outcome_prompt_email: boolean;
-  outcome_prompt_push: boolean;
-  daily_digest_email: boolean;
 }
 
 export interface Team {

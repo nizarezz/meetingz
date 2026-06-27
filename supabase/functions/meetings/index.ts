@@ -1,6 +1,7 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { userClient, serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
+import { sendNotificationEmail } from "../_shared/resend.ts";
 
 const TRANSITIONS: Record<string, string[]> = {
   planned:   ["active"],
@@ -168,6 +169,48 @@ Deno.serve(async (req: Request) => {
         .single();
 
       if (error) return err(error.message);
+
+      if (body.status === "completed") {
+        (async () => {
+          try {
+            const { data: participants } = await userClient(req)
+              .from("meeting_participants")
+              .select("user_id, users!inner(id, email, name)")
+              .eq("meeting_id", id);
+
+            if (participants?.length) {
+              const userIds = participants.map((p: any) => p.user_id);
+              const { data: prefs } = await serviceClient()
+                .from("notification_preferences")
+                .select("user_id")
+                .in("user_id", userIds)
+                .eq("outcome_prompt_email", true);
+
+              const baseUrl = Deno.env.get("APP_URL") ?? "http://localhost:3000";
+              for (const pref of prefs ?? []) {
+                const user = participants.find((p: any) => p.user_id === pref.user_id)?.users as any;
+                if (!user?.email) continue;
+                try {
+                  await sendNotificationEmail(
+                    user.email, "outcome-prompt",
+                    `Outcome needed: ${data.title}`,
+                    {
+                      name: user.name, title: data.title,
+                      department: data.department, meetingType: data.meeting_type,
+                      meetingUrl: `${baseUrl}/meetings/${id}`,
+                    }
+                  );
+                } catch (e) {
+                  console.error(`Failed to send outcome prompt to ${user.email}:`, e);
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Outcome prompt error:", e);
+          }
+        })();
+      }
+
       return ok(data);
     }
 
