@@ -1,0 +1,12 @@
+{
+  "typescript.validate.enable": true,
+  "typescript.tsserver.experimental.enableProjectDiagnostics": false,
+  "files.exclude": {
+    "**/.next": true
+  },
+  "search.exclude": {
+    "**/.next": true,
+    "supabase/functions/**": true
+  },
+  "typescript.preferences.includePackageJsonAutoImports": "auto"
+}
