@@ -1,4 +1,4 @@
-import { ok, err, preflight } from "../_shared/cors.ts";
+import { ok, err, preflight, paginated } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, ADMIN_ROLES } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
@@ -36,8 +36,7 @@ Deno.serve(async (req: Request) => {
         .range(from, to);
 
       if (error) return err(error.message);
-      const total = count ?? 0;
-      return ok({ data, page, per_page: perPage, total, total_pages: Math.ceil(total / perPage) });
+      return paginated(data ?? [], page, perPage, count ?? 0);
     }
 
     if (req.method === "PATCH" && parts.length === 1) {

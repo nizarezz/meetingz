@@ -1,4 +1,4 @@
-import { ok, err, preflight } from "../_shared/cors.ts";
+import { ok, err, preflight, paginated } from "../_shared/cors.ts";
 import { userClient, serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { sendNotificationEmail } from "../_shared/resend.ts";
@@ -111,8 +111,7 @@ Deno.serve(async (req: Request) => {
       query = query.range(from, to);
       const { data, error, count } = await query;
       if (error) return err(error.message);
-      const total = count ?? 0;
-      return ok({ data, page, per_page: perPage, total, total_pages: Math.ceil(total / perPage) });
+      return paginated(data ?? [], page, perPage, count ?? 0);
     }
 
     if (req.method === "GET" && id) {

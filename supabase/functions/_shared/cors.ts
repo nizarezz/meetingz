@@ -12,6 +12,16 @@ export function ok(data: unknown, status = 200): Response {
   });
 }
 
+export function paginated(data: unknown[], page: number, perPage: number, total: number): Response {
+  return ok({
+    data,
+    page,
+    per_page: perPage,
+    total,
+    total_pages: Math.ceil(total / perPage),
+  });
+}
+
 export function err(message: string, status = 400): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
