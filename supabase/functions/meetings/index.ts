@@ -1,7 +1,6 @@
 import { ok, err, preflight, paginated } from "../_shared/cors.ts";
 import { userClient, serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
-import { sendNotificationEmail } from "../_shared/resend.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { parse, createMeetingSchema, updateMeetingSchema } from "../_shared/validate.ts";
 
@@ -304,22 +303,32 @@ Deno.serve(async (req: Request) => {
               .eq("outcome_prompt_email", true);
 
             const baseUrl = Deno.env.get("APP_URL") ?? "http://localhost:3000";
-            for (const pref of prefs ?? []) {
-              const user = participants.find((p: any) => p.user_id === pref.user_id)?.users as any;
-              if (!user?.email) continue;
-              try {
-                await sendNotificationEmail(
-                  user.email, "outcome-prompt",
-                  `Outcome needed: ${data.title}`,
-                  {
-                    name: user.name, title: data.title,
-                    department: data.department, meetingType: data.meeting_type,
-                    meetingUrl: `${baseUrl}/meetings/${id}`,
-                  }
-                );
-              } catch (e) {
-                console.error(`Failed to send outcome prompt to ${user.email}:`, e);
-              }
+            const jobs = (prefs ?? [])
+              .map((pref) => {
+                const user = participants.find((p: any) => p.user_id === pref.user_id)?.users as any;
+                if (!user?.email) return null;
+                return {
+                  type: "send-email",
+                  payload: {
+                    to: user.email,
+                    template: "outcome-prompt",
+                    subject: `Outcome needed: ${data.title}`,
+                    data: JSON.stringify({
+                      name: user.name, title: data.title,
+                      department: data.department, meetingType: data.meeting_type,
+                      meetingUrl: `${baseUrl}/meetings/${id}`,
+                    }),
+                  },
+                  status: "pending",
+                };
+              })
+              .filter(Boolean);
+
+            if (jobs.length > 0) {
+              const { error: queueErr } = await serviceClient()
+                .from("job_queue")
+                .insert(jobs);
+              if (queueErr) console.error("Failed to queue outcome prompt emails:", queueErr);
             }
           }
         } catch (e) {

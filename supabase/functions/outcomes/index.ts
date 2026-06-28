@@ -1,54 +1,48 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { userClient, serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES } from "../_shared/auth.ts";
-import { sendNotificationEmail } from "../_shared/resend.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { parse, createOutcomeSchema } from "../_shared/validate.ts";
 
-async function resolveAssigneeEmail(
-  svc: ReturnType<typeof serviceClient>,
-  item: { assignee_id?: string | null; assignee_email?: string | null }
-): Promise<string | null> {
-  if (item.assignee_id) {
-    const { data } = await svc
-      .from("users")
-      .select("email")
-      .eq("id", item.assignee_id)
-      .maybeSingle();
-    if (data?.email) return data.email;
-  }
-  return item.assignee_email ?? null;
-}
-
-async function sendAssignmentEmails(
+async function queueAssignmentEmails(
   svc: ReturnType<typeof serviceClient>,
   items: Array<{ text: string; assignee_id?: string | null; assignee_email?: string | null; due_date?: string | null }>,
   meeting: { id: string; title: string },
   assignedBy: { email: string; name: string | null },
 ) {
   const baseUrl = Deno.env.get("APP_URL") ?? "http://localhost:3000";
-  console.log(`Sending ${items.length} assignment emails from ${assignedBy.email}`);
+  const jobs: Array<{ type: string; payload: Record<string, unknown>; status: string }> = [];
+
   for (const a of items) {
-    const to = await resolveAssigneeEmail(svc, a);
+    const to = a.assignee_id
+      ? (await svc.from("users").select("email").eq("id", a.assignee_id).maybeSingle()).data?.email
+      : a.assignee_email;
     if (!to || !a.text.trim()) continue;
-    try {
-      await sendNotificationEmail(
+
+    jobs.push({
+      type: "send-email",
+      payload: {
         to,
-        "action-item-assigned",
-        `Action item: ${a.text}`,
-        {
+        template: "action-item-assigned",
+        subject: `Action item: ${a.text}`,
+        data: JSON.stringify({
           name: to,
           item: a.text,
           meetingTitle: meeting.title,
           dueDate: a.due_date ?? undefined,
           meetingUrl: `${baseUrl}/meetings/${meeting.id}`,
           assignedBy: assignedBy.name ?? assignedBy.email,
-        },
-        assignedBy.email,
-      );
-    } catch (e) {
-      console.error(`Failed to send assignment email to ${to}:`, e);
-    }
+        }),
+        replyTo: assignedBy.email,
+      },
+      status: "pending",
+    });
+  }
+
+  if (jobs.length > 0) {
+    const { error } = await svc.from("job_queue").insert(jobs);
+    if (error) console.error("Failed to queue assignment emails:", error);
+    else console.log(`Queued ${jobs.length} assignment emails`);
   }
 }
 
@@ -154,7 +148,7 @@ Deno.serve(async (req: Request) => {
             .eq("id", caller.id)
             .single();
           if (profile) {
-            await sendAssignmentEmails(svc, action_items, meeting, profile);
+            await queueAssignmentEmails(svc, action_items, meeting, profile);
           }
         } catch (e) {
           console.error("Email send error:", e);
@@ -238,7 +232,7 @@ Deno.serve(async (req: Request) => {
             .eq("id", caller.id)
             .single();
           if (meetingTitle && profile) {
-            await sendAssignmentEmails(svc, action_items, { id: meetingId, title: meetingTitle.title }, profile);
+            await queueAssignmentEmails(svc, action_items, { id: meetingId, title: meetingTitle.title }, profile);
           }
         } catch (e) {
           console.error("Email send error:", e);
