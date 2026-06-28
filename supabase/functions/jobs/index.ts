@@ -41,11 +41,23 @@ Deno.serve(async (req: Request) => {
           .eq("id", job.id);
         processed++;
       } catch (e) {
-        const error = e instanceof Error ? e.message : "Unknown error";
-        const nextStatus = job.attempts + 1 >= job.max_attempts ? "failed" : "pending";
+        const error = e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : "Unknown error";
+        const isDeadLetter = job.attempts + 1 >= job.max_attempts;
+        const nextStatus = isDeadLetter ? "failed" : "pending";
+
+        if (isDeadLetter) {
+          console.error(
+            `[JOB_DEAD_LETTER] job=${job.id} type=${job.type} attempts=${job.attempts + 1}/${job.max_attempts} error=${error}`
+          );
+        } else {
+          console.warn(
+            `[JOB_RETRY] job=${job.id} type=${job.type} attempt=${job.attempts + 1}/${job.max_attempts} error=${error}`
+          );
+        }
+
         await svc
           .from("job_queue")
-          .update({ status: nextStatus, error })
+          .update({ status: nextStatus, error: error.slice(0, 2000) })
           .eq("id", job.id);
       }
     }

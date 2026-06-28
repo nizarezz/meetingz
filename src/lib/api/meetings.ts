@@ -1,5 +1,5 @@
-import { api } from "./client";
-import type { Meeting, AgendaItem, ParticipantRole, MeetingStatus, PaginatedResponse } from "@/lib/types";
+import { api, FUNCTIONS_BASE, ky } from "./client";
+import type { Meeting, AgendaItem, ParticipantRole, MeetingStatus, PaginatedResponse, LiveMeeting } from "@/lib/types";
 
 export const meetingsApi = {
   list: (params?: { status?: MeetingStatus; department?: string; page?: number; perPage?: number }) => {
@@ -19,4 +19,9 @@ export const meetingsApi = {
   update: (id: string, patch: Partial<Pick<Meeting, "title" | "status" | "department" | "meeting_type" | "scheduled_at" | "scheduled_duration" | "agenda_items" | "vibe">>) =>
     api().patch(`meetings/${id}`, { json: patch }).json<Meeting>(),
   remove: (id: string) => api().delete(`meetings/${id}`).json<{ deleted: true }>(),
+};
+
+export const publicMeetingsApi = {
+  getByShareToken: (shareToken: string) =>
+    ky.get(`${FUNCTIONS_BASE}/meetings/public/${shareToken}`).json<LiveMeeting>(),
 };
