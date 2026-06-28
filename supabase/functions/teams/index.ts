@@ -2,6 +2,7 @@ import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { audit } from "../_shared/audit.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -12,7 +13,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "GET") {
       if (!caller.team_id) return ok(null);
-      const { data, error } = await svc
+      const { data, error } = await caller.client
         .from("teams")
         .select("id, name, created_at")
         .eq("id", caller.team_id)
@@ -38,6 +39,7 @@ Deno.serve(async (req: Request) => {
         .single();
 
       if (error) return err(error.message);
+      await audit(caller.id, caller.team_id, "team_update", "team", caller.team_id, { name: body.name });
       return ok(data);
     }
 

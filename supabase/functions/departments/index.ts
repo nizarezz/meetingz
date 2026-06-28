@@ -1,5 +1,4 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
-import { userClient } from "../_shared/supabase.ts";
 import { resolveCaller } from "../_shared/auth.ts";
 
 Deno.serve(async (req: Request) => {
@@ -7,9 +6,9 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "GET") return err("Method not allowed", 405);
 
   try {
-    await resolveCaller(req);
+    const caller = await resolveCaller(req);
 
-    const { data, error } = await userClient(req)
+    const { data, error } = await caller.client
       .from("departments")
       .select("name")
       .order("name", { ascending: true });

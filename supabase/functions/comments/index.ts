@@ -19,7 +19,7 @@ Deno.serve(async (req: Request) => {
       const from    = (page - 1) * perPage;
       const to      = from + perPage - 1;
 
-      const { data, error, count } = await svc
+      const { data, error, count } = await caller.client
         .from("comments")
         .select("id, meeting_id, user_id, text, created_at, users!inner(name, role)", { count: "exact" })
         .eq("meeting_id", meetingId)
@@ -39,7 +39,7 @@ Deno.serve(async (req: Request) => {
 
       if (!meeting_id || !text?.trim()) return err("meeting_id and text are required");
 
-      const { data: meeting, error: meetingErr } = await svc
+      const { data: meeting, error: meetingErr } = await caller.client
         .from("meetings")
         .select("id")
         .eq("id", meeting_id)
@@ -48,6 +48,14 @@ Deno.serve(async (req: Request) => {
         .single();
 
       if (meetingErr || !meeting) return err("Meeting not found", 404);
+
+      const { data: participant } = await caller.client
+        .from("meeting_participants")
+        .select("id")
+        .eq("meeting_id", meeting_id)
+        .eq("user_id", caller.id)
+        .maybeSingle();
+      if (!participant) return err("Only meeting participants can comment", 403);
 
       const { data: comment, error: insertErr } = await svc
         .from("comments")

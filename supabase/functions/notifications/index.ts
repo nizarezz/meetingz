@@ -14,7 +14,7 @@ Deno.serve(async (req: Request) => {
     const svc = serviceClient();
 
     if (req.method === "GET" && parts[0] === "preferences") {
-      const { data, error } = await svc
+      const { data, error } = await caller.client
         .from("notification_preferences")
         .select("meeting_reminder_email, outcome_prompt_email")
         .eq("user_id", caller.id)

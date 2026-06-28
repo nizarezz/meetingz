@@ -3,6 +3,7 @@ import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { parse, createTemplateSchema } from "../_shared/validate.ts";
+import { audit } from "../_shared/audit.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -23,7 +24,7 @@ Deno.serve(async (req: Request) => {
       const from        = (page - 1) * perPage;
       const to          = from + perPage - 1;
 
-      let query = svc
+      let query = caller.client
         .from("templates")
         .select(`
           id, name, description, department, meeting_type, created_by, created_at,
@@ -43,7 +44,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "GET" && id) {
-      const { data, error } = await svc
+      const { data, error } = await caller.client
         .from("templates")
         .select(`
           id, name, description, department, meeting_type, created_by, team_id, created_at, deleted_at,
@@ -101,12 +102,13 @@ Deno.serve(async (req: Request) => {
         if (aiErr) return err(aiErr.message);
       }
 
-      const { data: items } = await svc
+      const { data: items } = await caller.client
         .from("agenda_items")
         .select("title, duration, assignee_email, presenter, notes")
         .eq("template_id", data.id)
         .order("sort_order", { ascending: true });
 
+      await audit(caller.id, caller.team_id, "template_create", "template", data.id, { name: data.name });
       return ok({ ...data, agenda_items: items ?? [] }, 201);
     }
 
@@ -159,7 +161,7 @@ Deno.serve(async (req: Request) => {
         if (aiErr) return err(aiErr.message);
       }
 
-      const { data: updated } = await svc
+      const { data: updated } = await caller.client
         .from("templates")
         .select(`
           id, name, description, department, meeting_type, created_by, team_id, created_at, deleted_at,
@@ -183,6 +185,7 @@ Deno.serve(async (req: Request) => {
         .eq("team_id", caller.team_id);
 
       if (error) return err(error.message);
+      await audit(caller.id, caller.team_id, "template_delete", "template", id, {});
       return ok({ deleted: true });
     }
 

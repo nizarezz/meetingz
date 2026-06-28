@@ -20,7 +20,7 @@ Deno.serve(async (req: Request) => {
       const from    = (page - 1) * perPage;
       const to      = from + perPage - 1;
 
-      let query = svc
+      let query = caller.client
         .from("action_items")
         .select("id, meeting_id, outcome_id, text, assignee_email, assignee_id, due_date, done, created_at, meetings!inner(title, scheduled_at)", { count: "exact" })
         .eq("team_id", caller.team_id);
@@ -44,7 +44,7 @@ Deno.serve(async (req: Request) => {
       const itemId = parts[0];
       const body = await req.json();
 
-      const { data: item } = await svc
+      const { data: item } = await caller.client
         .from("action_items")
         .select("id, assignee_id, assignee_email, team_id")
         .eq("id", itemId)
@@ -64,7 +64,7 @@ Deno.serve(async (req: Request) => {
 
       if (updateErr) return err(updateErr.message);
 
-      const { data: updated, error: fetchErr } = await svc
+      const { data: updated, error: fetchErr } = await caller.client
         .from("action_items")
         .select("id, meeting_id, outcome_id, text, assignee_email, assignee_id, due_date, done, created_at, meetings!inner(title, scheduled_at)")
         .eq("id", itemId)

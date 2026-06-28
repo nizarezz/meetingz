@@ -1,8 +1,9 @@
 import { ok, err, preflight, paginated } from "../_shared/cors.ts";
-import { userClient, serviceClient } from "../_shared/supabase.ts";
+import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { parse, createMeetingSchema, updateMeetingSchema } from "../_shared/validate.ts";
+import { audit } from "../_shared/audit.ts";
 
 const TRANSITIONS: Record<string, string[]> = {
   planned:   ["active"],
@@ -85,7 +86,7 @@ Deno.serve(async (req: Request) => {
       const from       = (page - 1) * perPage;
       const to         = from + perPage - 1;
 
-      const client = userClient(req);
+      const client = caller.client;
       let query = client
         .from("meetings")
         .select(`
@@ -114,7 +115,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "GET" && id) {
-      const { data, error } = await userClient(req)
+      const { data, error } = await caller.client
         .from("meetings")
         .select(`
           id, title, department, meeting_type, vibe,
@@ -190,7 +191,7 @@ Deno.serve(async (req: Request) => {
         if (aiErr) return err(aiErr.message);
       }
 
-      const { data: items } = await svc
+      const { data: items } = await caller.client
         .from("agenda_items")
         .select("title, duration, assignee_email, presenter, notes")
         .eq("meeting_id", meeting.id)
@@ -214,17 +215,31 @@ Deno.serve(async (req: Request) => {
         if (pErr) return err(pErr.message);
       }
 
+      await audit(caller.id, caller.team_id, "meeting_create", "meeting", meeting.id, { title: meeting.title });
       return ok({ ...meeting, agenda_items: items ?? [] }, 201);
     }
 
     if (req.method === "PATCH" && id) {
       requireRole(caller, ADMIN_ROLES);
       checkRateLimit(`meetings:update:${caller.team_id}`, 30, "meeting updates");
+
+      const { data: meetingOwner } = await caller.client
+        .from("meetings")
+        .select("created_by")
+        .eq("id", id)
+        .single();
+      if (!meetingOwner) return err("Meeting not found", 404);
+      const adminRoles = [...ADMIN_ROLES, ...SUPER_ADMIN_ROLES];
+      const isAdmin = adminRoles.includes(caller.role as any);
+      if (!isAdmin && meetingOwner.created_by !== caller.id) {
+        return err("Forbidden", 403);
+      }
+
       const body = await req.json().catch(() => ({}));
       const parsed = parse(updateMeetingSchema, body);
 
       if (parsed.status) {
-        const { data: current, error: fetchErr } = await userClient(req)
+        const { data: current, error: fetchErr } = await caller.client
           .from("meetings")
           .select("status")
           .eq("id", id)
@@ -249,7 +264,7 @@ Deno.serve(async (req: Request) => {
         )
       );
 
-      const { data, error } = await userClient(req)
+      const { data, error } = await caller.client
         .from("meetings")
         .update(safe)
         .eq("id", id)
@@ -281,22 +296,23 @@ Deno.serve(async (req: Request) => {
         if (aiErr) return err(aiErr.message);
       }
 
-      const { data: items } = await serviceClient()
+      const { data: items } = await caller.client
         .from("agenda_items")
         .select("title, duration, assignee_email, presenter, notes")
         .eq("meeting_id", id)
         .order("sort_order", { ascending: true });
 
       if (parsed.status === "completed") {
+        await audit(caller.id, caller.team_id, "meeting_complete", "meeting", id, { title: data.title });
         try {
-          const { data: participants } = await userClient(req)
+          const { data: participants } = await caller.client
             .from("meeting_participants")
             .select("user_id, users!inner(id, email, name)")
             .eq("meeting_id", id);
 
           if (participants?.length) {
             const userIds = participants.map((p: any) => p.user_id);
-            const { data: prefs } = await serviceClient()
+            const { data: prefs } = await caller.client
               .from("notification_preferences")
               .select("user_id")
               .in("user_id", userIds)
@@ -350,6 +366,7 @@ Deno.serve(async (req: Request) => {
         .eq("team_id", caller.team_id);
 
       if (error) return err(error.message);
+      await audit(caller.id, caller.team_id, "meeting_delete", "meeting", id, {});
       return ok({ deleted: true });
     }
 

@@ -5,6 +5,7 @@ export interface CallerInfo {
   id: string;
   role: string;
   team_id: string;
+  client: ReturnType<typeof userClient>;
 }
 
 export const ADMIN_ROLES = ["super_admin", "dept_admin"] as const;
@@ -24,7 +25,7 @@ export async function resolveCaller(req: Request): Promise<CallerInfo> {
 
   const { data: profile, error: profileError } = await client
     .from("users")
-    .select("id, role, team_id")
+    .select("id, role, team_id, is_approved")
     .eq("id", user.id)
     .is("deleted_at", null)
     .single();
@@ -33,12 +34,16 @@ export async function resolveCaller(req: Request): Promise<CallerInfo> {
     throw respond(403, "User not found or deleted");
   }
 
-  return profile as CallerInfo;
+  if (!profile.is_approved) {
+    throw respond(403, "Account not yet approved");
+  }
+
+  return { id: profile.id, role: profile.role, team_id: profile.team_id, client };
 }
 
 export function requireRole(
   caller: CallerInfo,
-  allowed: string[]
+  allowed: readonly string[]
 ): void {
   if (!allowed.includes(caller.role)) {
     throw new Response(

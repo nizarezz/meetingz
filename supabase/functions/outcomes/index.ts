@@ -1,8 +1,9 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
-import { userClient, serviceClient } from "../_shared/supabase.ts";
+import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { parse, createOutcomeSchema } from "../_shared/validate.ts";
+import { audit } from "../_shared/audit.ts";
 
 async function queueAssignmentEmails(
   svc: ReturnType<typeof serviceClient>,
@@ -60,8 +61,7 @@ Deno.serve(async (req: Request) => {
     if (!meetingId) return err("meetingId is required");
 
     if (req.method === "GET") {
-      const svc = serviceClient();
-      const { data: outcome, error } = await svc
+      const { data: outcome, error } = await caller.client
         .from("outcomes")
         .select("id, meeting_id, primary_outcome, notes, logged_by, team_id, created_at")
         .eq("meeting_id", meetingId)
@@ -70,7 +70,7 @@ Deno.serve(async (req: Request) => {
       if (error) return err(error.message);
 
       if (outcome) {
-        const { data: items } = await svc
+        const { data: items } = await caller.client
           .from("action_items")
           .select("id, text, assignee_email, assignee_id, due_date, done")
           .eq("outcome_id", outcome.id)
@@ -97,7 +97,7 @@ Deno.serve(async (req: Request) => {
 
       const svc = serviceClient();
 
-      const { data: meeting, error: meetingErr } = await svc
+      const { data: meeting, error: meetingErr } = await caller.client
         .from("meetings")
         .select("id, title, status, team_id")
         .eq("id", meetingId)
@@ -142,7 +142,7 @@ Deno.serve(async (req: Request) => {
         if (aiErr) return err(aiErr.message);
 
         try {
-          const { data: profile } = await svc
+          const { data: profile } = await caller.client
             .from("users")
             .select("email, name")
             .eq("id", caller.id)
@@ -160,6 +160,7 @@ Deno.serve(async (req: Request) => {
         .update({ status: "logged" })
         .eq("id", meetingId);
 
+      await audit(caller.id, caller.team_id, "outcome_create", "outcome", outcome.id, { primary_outcome, meeting_id: meetingId });
       return ok({ ...outcome, action_items }, 201);
     }
 
@@ -182,7 +183,7 @@ Deno.serve(async (req: Request) => {
         return err("No fields to update");
       }
 
-      const { data: outcome, error: fetchErr } = await svc
+      const { data: outcome, error: fetchErr } = await caller.client
         .from("outcomes")
         .select("id, meeting_id, primary_outcome, notes, logged_by, team_id, created_at")
         .eq("meeting_id", meetingId)
@@ -221,12 +222,12 @@ Deno.serve(async (req: Request) => {
         }
 
         try {
-          const { data: meetingTitle } = await svc
+          const { data: meetingTitle } = await caller.client
             .from("meetings")
             .select("title")
             .eq("id", meetingId)
             .single();
-          const { data: profile } = await svc
+          const { data: profile } = await caller.client
             .from("users")
             .select("email, name")
             .eq("id", caller.id)
@@ -239,12 +240,13 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      const { data: items } = await svc
+      const { data: items } = await caller.client
         .from("action_items")
         .select("id, text, assignee_email, assignee_id, due_date, done")
         .eq("outcome_id", outcome.id)
         .order("created_at", { ascending: true });
 
+      await audit(caller.id, caller.team_id, "outcome_update", "outcome", meetingId, { primary_outcome: patch.primary_outcome });
       return ok({ ...outcome, action_items: items ?? [] });
     }
 

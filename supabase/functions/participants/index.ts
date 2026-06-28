@@ -2,6 +2,7 @@ import { ok, err, preflight, paginated } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { audit } from "../_shared/audit.ts";
 
 const VALID_ROLES = ["organizer", "presenter", "attendee"];
 
@@ -25,7 +26,7 @@ Deno.serve(async (req: Request) => {
       const from    = (page - 1) * perPage;
       const to      = from + perPage - 1;
 
-      const { data, error, count } = await svc
+      const { data, error, count } = await caller.client
         .from("meeting_participants")
         .select(`
           id, user_id, role, department, notified_at, created_at,
@@ -52,7 +53,7 @@ Deno.serve(async (req: Request) => {
         return err(`role must be one of: ${VALID_ROLES.join(", ")}`);
       }
 
-      const { data: meeting, error: meetingErr } = await svc
+      const { data: meeting, error: meetingErr } = await caller.client
         .from("meetings")
         .select("id")
         .eq("id", meeting_id)
@@ -62,7 +63,7 @@ Deno.serve(async (req: Request) => {
 
       if (meetingErr || !meeting) return err("Meeting not found", 404);
 
-      const { data: user, error: userErr } = await svc
+      const { data: user, error: userErr } = await caller.client
         .from("users")
         .select("id")
         .eq("id", user_id)
@@ -92,6 +93,7 @@ Deno.serve(async (req: Request) => {
         return err(error.message);
       }
 
+      await audit(caller.id, caller.team_id, "participant_add", "participant", data.id, { meeting_id, user_id });
       return ok(data, 201);
     }
 
@@ -131,6 +133,7 @@ Deno.serve(async (req: Request) => {
         .eq("team_id", caller.team_id);
 
       if (error) return err(error.message);
+      await audit(caller.id, caller.team_id, "participant_remove", "participant", id, {});
       return ok({ deleted: true });
     }
 

@@ -1,8 +1,9 @@
 import { ok, err, preflight, paginated } from "../_shared/cors.ts";
-import { userClient, serviceClient } from "../_shared/supabase.ts";
+import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { sendNotificationEmail } from "../_shared/resend.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { audit } from "../_shared/audit.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -26,7 +27,7 @@ Deno.serve(async (req: Request) => {
 
       const search = url.searchParams.get("search");
 
-      let query = svc
+      let query = caller.client
         .from("users")
         .select("id, email, name, role, department, is_approved, created_at", { count: "exact" })
         .is("deleted_at", null)
@@ -44,7 +45,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "GET" && id) {
-      const { data, error } = await svc
+      const { data, error } = await caller.client
         .from("users")
         .select("id, email, name, role, department, is_approved, fcm_token, created_at")
         .eq("id", id)
@@ -91,6 +92,8 @@ Deno.serve(async (req: Request) => {
         .single();
 
       if (error) return err(error.message, 404);
+      await audit(caller.id, caller.team_id, "user_approve", "user", id, {});
+      await svc.auth.admin.updateUserById(id, { user_metadata: { role: data.role } });
       return ok(data);
     }
 
@@ -99,7 +102,7 @@ Deno.serve(async (req: Request) => {
 
       if (id === caller.id) return err("Cannot deactivate yourself", 403);
 
-      const { data: target } = await svc
+      const { data: target } = await caller.client
         .from("users")
         .select("role")
         .eq("id", id)
@@ -120,6 +123,7 @@ Deno.serve(async (req: Request) => {
         .eq("team_id", caller.team_id);
 
       if (error) return err(error.message);
+      await audit(caller.id, caller.team_id, "user_deactivate", "user", id, {});
       return ok({ deactivated: true });
     }
 
@@ -133,7 +137,7 @@ Deno.serve(async (req: Request) => {
       if (!email) return err("email is required");
       const displayName = name || email.split("@")[0];
 
-      const { data: existing } = await svc
+      const { data: existing } = await caller.client
         .from("users")
         .select("id, deleted_at")
         .eq("email", email)
@@ -158,6 +162,7 @@ Deno.serve(async (req: Request) => {
           .single();
 
         if (error) return err(error.message);
+        await audit(caller.id, caller.team_id, "user_invite", "user", data.id, { email, role });
         return ok(data);
       }
 
@@ -193,7 +198,7 @@ Deno.serve(async (req: Request) => {
         user_metadata: { role, name: displayName, department },
       });
 
-      const { data: team } = await svc
+      const { data: team } = await caller.client
         .from("teams")
         .select("name")
         .eq("id", caller.team_id)
@@ -212,6 +217,7 @@ Deno.serve(async (req: Request) => {
         console.error("Failed to send invitation email:", e);
       }
 
+      await audit(caller.id, caller.team_id, "user_invite", "user", profile.id, { email, role });
       return ok(profile, 201);
     }
 

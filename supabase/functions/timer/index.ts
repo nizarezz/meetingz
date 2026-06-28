@@ -1,5 +1,5 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
-import { userClient, serviceClient } from "../_shared/supabase.ts";
+import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 
@@ -18,7 +18,7 @@ Deno.serve(async (req: Request) => {
     if (!meetingId) return err("meetingId is required");
 
     const svc = serviceClient();
-    const { data: meeting, error: fetchErr } = await svc
+    const { data: meeting, error: fetchErr } = await caller.client
       .from("meetings")
       .select(`
         id, status, scheduled_duration,
@@ -31,13 +31,13 @@ Deno.serve(async (req: Request) => {
     if (fetchErr) return err("Meeting not found", 404);
     if (meeting.team_id !== caller.team_id) return err("Forbidden", 403);
 
-    const { data: agendaItems } = await svc
+    const { data: agendaItems } = await caller.client
       .from("agenda_items")
       .select("title, duration")
       .eq("meeting_id", meetingId)
       .order("sort_order", { ascending: true });
 
-    const { data: timerState } = await svc
+    const { data: timerState } = await caller.client
       .from("meeting_timer_state")
       .select("*")
       .eq("meeting_id", meetingId)
