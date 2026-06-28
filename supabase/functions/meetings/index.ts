@@ -4,6 +4,7 @@ import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { parse, createMeetingSchema, updateMeetingSchema } from "../_shared/validate.ts";
 import { audit } from "../_shared/audit.ts";
+import { captureException } from "../_shared/sentry.ts";
 
 const TRANSITIONS: Record<string, string[]> = {
   planned:   ["active"],
@@ -348,6 +349,8 @@ Deno.serve(async (req: Request) => {
             }
           }
         } catch (e) {
+          const msg = e instanceof Error ? e.message : "Unknown error";
+          await captureException(msg, { context: "meetings-outcome-prompt" });
           console.error("Outcome prompt error:", e);
         }
       }
@@ -373,6 +376,8 @@ Deno.serve(async (req: Request) => {
     return err("Not found", 404);
   } catch (e) {
     if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    await captureException(msg, { context: "meetings" });
     console.error(e);
     return err("Internal server error", 500);
   }

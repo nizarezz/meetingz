@@ -1,6 +1,7 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { sendNotificationEmail } from "../_shared/resend.ts";
+import { captureException } from "../_shared/sentry.ts";
 
 const BATCH_SIZE = 10;
 
@@ -49,6 +50,12 @@ Deno.serve(async (req: Request) => {
           console.error(
             `[JOB_DEAD_LETTER] job=${job.id} type=${job.type} attempts=${job.attempts + 1}/${job.max_attempts} error=${error}`
           );
+          await captureException(error, {
+            job_id: job.id,
+            job_type: job.type,
+            attempts: job.attempts + 1,
+            max_attempts: job.max_attempts,
+          });
         } else {
           console.warn(
             `[JOB_RETRY] job=${job.id} type=${job.type} attempt=${job.attempts + 1}/${job.max_attempts} error=${error}`
@@ -65,7 +72,9 @@ Deno.serve(async (req: Request) => {
     return ok({ processed });
   } catch (e) {
     if (e instanceof Response) return e;
-    console.error(e);
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    console.error(msg);
+    await captureException(msg, { context: "job-worker-loop" });
     return err("Internal server error", 500);
   }
 });

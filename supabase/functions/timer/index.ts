@@ -2,6 +2,7 @@ import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { captureException } from "../_shared/sentry.ts";
 
 const TIMER_ROLES = ADMIN_ROLES;
 
@@ -187,6 +188,8 @@ Deno.serve(async (req: Request) => {
 
   } catch (e) {
     if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    await captureException(msg, { context: "timer" });
     console.error(e);
     return err("Internal server error", 500);
   }

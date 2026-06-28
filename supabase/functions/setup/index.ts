@@ -1,5 +1,6 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { userClient, serviceClient } from "../_shared/supabase.ts";
+import { captureException } from "../_shared/sentry.ts";
 
 async function setMetadata(id: string, role: string) {
   const svc = serviceClient();
@@ -103,6 +104,8 @@ Deno.serve(async (req: Request) => {
       already_setup: false,
     }, 201);
   } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    await captureException(msg, { context: "setup" });
     console.error(e);
     return err("Internal server error", 500);
   }

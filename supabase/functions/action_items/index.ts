@@ -2,6 +2,7 @@ import { ok, err, preflight, paginated } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, ADMIN_ROLES } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { captureException } from "../_shared/sentry.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -77,6 +78,8 @@ Deno.serve(async (req: Request) => {
     return err("Method not allowed", 405);
   } catch (e) {
     if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    await captureException(msg, { context: "action_items" });
     console.error(e);
     return err("Internal server error", 500);
   }

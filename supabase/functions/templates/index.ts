@@ -4,6 +4,7 @@ import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { parse, createTemplateSchema } from "../_shared/validate.ts";
 import { audit } from "../_shared/audit.ts";
+import { captureException } from "../_shared/sentry.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -192,6 +193,8 @@ Deno.serve(async (req: Request) => {
     return err("Not found", 404);
   } catch (e) {
     if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    await captureException(msg, { context: "templates" });
     console.error(e);
     return err("Internal server error", 500);
   }

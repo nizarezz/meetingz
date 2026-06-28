@@ -1,5 +1,6 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { resolveCaller } from "../_shared/auth.ts";
+import { captureException } from "../_shared/sentry.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -17,6 +18,8 @@ Deno.serve(async (req: Request) => {
     return ok(data.map((d: { name: string }) => d.name));
   } catch (e) {
     if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    await captureException(msg, { context: "departments" });
     console.error(e);
     return err("Internal server error", 500);
   }

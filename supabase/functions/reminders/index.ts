@@ -1,6 +1,7 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { sendNotificationEmail } from "../_shared/resend.ts";
+import { captureException } from "../_shared/sentry.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -57,6 +58,8 @@ Deno.serve(async (req: Request) => {
           });
           sent++;
         } catch (e) {
+          const msg = e instanceof Error ? e.message : "Unknown error";
+          await captureException(msg, { context: "reminders-email" });
           console.error(`Failed to send reminder to ${user!.email}:`, e);
         }
       }
@@ -65,6 +68,8 @@ Deno.serve(async (req: Request) => {
     return ok({ sent });
   } catch (e) {
     if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    await captureException(msg, { context: "reminders" });
     console.error(e);
     return err("Internal server error", 500);
   }

@@ -4,6 +4,7 @@ import { resolveCaller, requireRole, ADMIN_ROLES } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { parse, createOutcomeSchema } from "../_shared/validate.ts";
 import { audit } from "../_shared/audit.ts";
+import { captureException } from "../_shared/sentry.ts";
 
 async function queueAssignmentEmails(
   svc: ReturnType<typeof serviceClient>,
@@ -151,6 +152,8 @@ Deno.serve(async (req: Request) => {
             await queueAssignmentEmails(svc, action_items, meeting, profile);
           }
         } catch (e) {
+          const msg = e instanceof Error ? e.message : "Unknown error";
+          await captureException(msg, { context: "outcomes-email" });
           console.error("Email send error:", e);
         }
       }
@@ -236,6 +239,8 @@ Deno.serve(async (req: Request) => {
             await queueAssignmentEmails(svc, action_items, { id: meetingId, title: meetingTitle.title }, profile);
           }
         } catch (e) {
+          const msg = e instanceof Error ? e.message : "Unknown error";
+          await captureException(msg, { context: "outcomes-email" });
           console.error("Email send error:", e);
         }
       }
@@ -254,6 +259,8 @@ Deno.serve(async (req: Request) => {
 
   } catch (e) {
     if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    await captureException(msg, { context: "outcomes" });
     console.error(e);
     return err("Internal server error", 500);
   }
