@@ -16,7 +16,7 @@ test.describe("Meeting Timer", () => {
 
   test("navigates to a meeting and sees timer controls", async ({ page }) => {
     await page.goto("/meetings");
-    await expect(page.locator("text=All Meetings")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("text=Workspace")).toBeVisible({ timeout: 10000 });
 
     const meetingLink = page.locator("a[href*='/meetings/']").first();
     await expect(meetingLink).toBeVisible({ timeout: 10000 });
