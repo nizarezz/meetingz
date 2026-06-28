@@ -9,7 +9,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, CheckSquare, MessageSquare, FileText } from "lucide-react";
 import { format } from "date-fns";
-import type { ReportSnapshot } from "@/lib/types";
+
 
 export default function MeetingReportPage({
   params,
