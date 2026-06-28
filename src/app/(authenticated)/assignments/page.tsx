@@ -102,7 +102,7 @@ export default function AssignmentsPage() {
             </div>
           ))}
         </div>
-      ) : items && items.length === 0 ? (
+      ) : items?.data && items.data.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-16 text-center">
           <CheckSquare className="h-12 w-12 text-muted-foreground/40" />
           <p className="text-muted-foreground">No action items found for this email</p>
