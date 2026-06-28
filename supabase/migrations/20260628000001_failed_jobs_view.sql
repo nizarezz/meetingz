@@ -9,7 +9,7 @@ SELECT
   max_attempts,
   error,
   created_at,
-  updated_at AS last_attempt
+  COALESCE(completed_at, created_at) AS last_attempt
 FROM job_queue
 WHERE status = 'failed'
-ORDER BY updated_at DESC;
+ORDER BY last_attempt DESC;

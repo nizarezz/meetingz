@@ -69,8 +69,8 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'action_items' AND policyname = 'Admins can insert action items') THEN
     CREATE POLICY "Admins can insert action items"
       ON action_items FOR INSERT WITH CHECK (
-        team_id = auth.user_team_id()
-        AND auth.user_role() IN ('super_admin', 'dept_admin')
+        team_id = public.user_team_id()
+        AND public.user_role() IN ('super_admin', 'dept_admin')
       );
   END IF;
 END $$;
@@ -79,8 +79,8 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'action_items' AND policyname = 'Admins can delete action items') THEN
     CREATE POLICY "Admins can delete action items"
       ON action_items FOR DELETE USING (
-        team_id = auth.user_team_id()
-        AND auth.user_role() IN ('super_admin', 'dept_admin')
+        team_id = public.user_team_id()
+        AND public.user_role() IN ('super_admin', 'dept_admin')
       );
   END IF;
 END $$;
@@ -89,8 +89,8 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'outcomes' AND policyname = 'Admins can delete outcomes') THEN
     CREATE POLICY "Admins can delete outcomes"
       ON outcomes FOR DELETE USING (
-        team_id = auth.user_team_id()
-        AND auth.user_role() IN ('super_admin', 'dept_admin')
+        team_id = public.user_team_id()
+        AND public.user_role() IN ('super_admin', 'dept_admin')
       );
   END IF;
 END $$;
@@ -99,7 +99,7 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'action_items' AND policyname = 'Assignee by email can update action items') THEN
     CREATE POLICY "Assignee by email can update action items"
       ON action_items FOR UPDATE USING (
-        team_id = auth.user_team_id()
+        team_id = public.user_team_id()
         AND (
           assignee_id = auth.uid()
           OR assignee_email = (SELECT email FROM users WHERE id = auth.uid() AND deleted_at IS NULL)

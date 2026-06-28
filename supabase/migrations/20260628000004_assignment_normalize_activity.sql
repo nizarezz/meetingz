@@ -41,16 +41,20 @@ CREATE TRIGGER action_items_resolve_assignee_id
   FOR EACH ROW EXECUTE FUNCTION resolve_assignee_id();
 
 -- ============================================================
--- 3. Sync done → status for backward compatibility
---    Whenever done is toggled, auto-set the status column.
---    This lets old clients continuing to send { done: true }
---    interoperate with the new status field.
+-- 3. Bidirectional done ↔ status sync
+--    Old clients send { done: true } → auto-sets status='done'
+--    New clients send { status: 'done' } → auto-sets done=true
+--    Keeps both columns consistent regardless of which one is written.
 -- ============================================================
-CREATE OR REPLACE FUNCTION sync_done_to_status()
+CREATE OR REPLACE FUNCTION sync_action_item_done_status()
 RETURNS trigger AS $$
 BEGIN
   IF NEW.done IS DISTINCT FROM OLD.done THEN
+    -- done was explicitly toggled; sync status
     NEW.status := CASE WHEN NEW.done THEN 'done' ELSE 'pending' END;
+  ELSIF NEW.status IS DISTINCT FROM OLD.status THEN
+    -- status was explicitly changed; sync done
+    NEW.done := NEW.status = 'done';
   END IF;
   RETURN NEW;
 END;
@@ -58,8 +62,8 @@ $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS action_items_sync_done_status ON action_items CASCADE;
 CREATE TRIGGER action_items_sync_done_status
-  BEFORE UPDATE OF done ON action_items
-  FOR EACH ROW EXECUTE FUNCTION sync_done_to_status();
+  BEFORE UPDATE OF done, status ON action_items
+  FOR EACH ROW EXECUTE FUNCTION sync_action_item_done_status();
 
 -- ============================================================
 -- 4. action_item_activity: immutable log of status changes
@@ -86,7 +90,7 @@ DO $$ BEGIN
         EXISTS (
           SELECT 1 FROM action_items a
           WHERE a.id = action_item_id
-            AND a.team_id = auth.user_team_id()
+            AND a.team_id = public.user_team_id()
         )
       );
   END IF;

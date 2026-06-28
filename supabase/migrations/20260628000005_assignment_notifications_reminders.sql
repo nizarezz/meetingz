@@ -39,7 +39,7 @@ DO $$ BEGIN
         EXISTS (
           SELECT 1 FROM action_items a
           WHERE a.id = action_item_id
-            AND a.team_id = auth.user_team_id()
+            AND a.team_id = public.user_team_id()
         )
       );
   END IF;
