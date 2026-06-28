@@ -1,25 +1,30 @@
 -- Phase 1a: Assignment system — columns, indexes, RLS
--- 1. Add missing columns to action_items and outcomes
--- 2. Add performance indexes
--- 3. Add missing RLS policies
--- 4. Auto-update updated_at triggers
+-- 1. Add tracking columns to action_items (assigned_by, assigned_at, priority, status)
+-- 2. Add tracking columns to outcomes (updated_at, updated_by)
+-- 3. Add performance indexes
+-- 4. Add missing RLS policies
+-- 5. Auto-update updated_at triggers
 
 -- ============================================================
 -- 1. action_items: add tracking columns
 -- ============================================================
-ALTER TABLE action_items ADD COLUMN IF NOT EXISTS title text;
+
+-- assigned_by tracks who created/assigned the item
 ALTER TABLE action_items ADD COLUMN IF NOT EXISTS assigned_by uuid REFERENCES users(id);
+
+-- assigned_at is when the assignment was made
 ALTER TABLE action_items ADD COLUMN IF NOT EXISTS assigned_at timestamptz DEFAULT now();
-ALTER TABLE action_items ADD COLUMN IF NOT EXISTS completed_at timestamptz;
-ALTER TABLE action_items ADD COLUMN IF NOT EXISTS completed_by uuid REFERENCES users(id);
+
+-- priority for triage, defaulting to medium
 ALTER TABLE action_items ADD COLUMN IF NOT EXISTS priority text DEFAULT 'medium'
   CHECK (priority IN ('low', 'medium', 'high'));
 
--- Copy text into title for existing rows where title is null
-UPDATE action_items SET title = text WHERE title IS NULL;
+-- status replaces a simple done boolean with a richer state machine
+ALTER TABLE action_items ADD COLUMN IF NOT EXISTS status text DEFAULT 'pending'
+  CHECK (status IN ('pending', 'in_progress', 'blocked', 'done'));
 
--- Make title NOT NULL after backfill
-ALTER TABLE action_items ALTER COLUMN title SET NOT NULL;
+-- Sync existing done=true rows to status='done'
+UPDATE action_items SET status = 'done' WHERE done = true AND status = 'pending';
 
 -- ============================================================
 -- 2. outcomes: add tracking columns
@@ -28,16 +33,8 @@ ALTER TABLE outcomes ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now
 ALTER TABLE outcomes ADD COLUMN IF NOT EXISTS updated_by uuid REFERENCES users(id);
 
 -- ============================================================
--- 3. Add auto-updated_at triggers for action_items and outcomes
+-- 3. Auto-update updated_at triggers
 -- ============================================================
-CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS trigger AS $$
-BEGIN
-  NEW.updated_at = now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
 DROP TRIGGER IF EXISTS action_items_updated_at ON action_items CASCADE;
 CREATE TRIGGER action_items_updated_at
   BEFORE UPDATE ON action_items
@@ -98,7 +95,6 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Allow assignee by email to update their own action items
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'action_items' AND policyname = 'Assignee by email can update action items') THEN
     CREATE POLICY "Assignee by email can update action items"
