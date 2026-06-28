@@ -43,8 +43,8 @@ export default function AssignmentsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["action_items"] }),
   });
 
-  const doneItems = items?.filter((i) => i.done) ?? [];
-  const pendingItems = items?.filter((i) => !i.done) ?? [];
+  const doneItems = items?.data?.filter((i) => i.done) ?? [];
+  const pendingItems = items?.data?.filter((i) => !i.done) ?? [];
   const now = new Date(); const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const overdueItems = pendingItems.filter((i) => i.due_date && new Date(i.due_date) < today);
 
@@ -153,7 +153,7 @@ function ItemCard({
   item,
   toggleMutation,
 }: {
-  item: Awaited<ReturnType<typeof actionItemsApi.list>>[number];
+  item: Awaited<ReturnType<typeof actionItemsApi.list>>["data"][number];
   toggleMutation: ReturnType<typeof useMutation<unknown, Error, { id: string; done: boolean }>>;
 }) {
   const isOverdue = item.due_date && !item.done && new Date(item.due_date) < new Date();

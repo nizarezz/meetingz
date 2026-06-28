@@ -15,10 +15,14 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET") {
       const assigneeId    = url.searchParams.get("assignee_id");
       const assigneeEmail = url.searchParams.get("assignee_email");
+      const page    = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
+      const perPage = Math.max(1, Math.min(100, parseInt(url.searchParams.get("per_page") ?? "50", 10)));
+      const from    = (page - 1) * perPage;
+      const to      = from + perPage - 1;
 
       let query = svc
         .from("action_items")
-        .select("id, meeting_id, outcome_id, text, assignee_email, assignee_id, due_date, done, created_at, meetings!inner(title, scheduled_at)")
+        .select("id, meeting_id, outcome_id, text, assignee_email, assignee_id, due_date, done, created_at, meetings!inner(title, scheduled_at)", { count: "exact" })
         .eq("team_id", caller.team_id);
 
       if (assigneeId) {
@@ -27,11 +31,13 @@ Deno.serve(async (req: Request) => {
         query = query.eq("assignee_email", assigneeEmail);
       }
 
-      const { data, error } = await query
-        .order("created_at", { ascending: false });
+      const { data, error, count } = await query
+        .order("created_at", { ascending: false })
+        .range(from, to);
 
       if (error) return err(error.message);
-      return ok(data ?? []);
+      const total = count ?? 0;
+      return ok({ data, page, per_page: perPage, total, total_pages: Math.ceil(total / perPage) });
     }
 
     if (req.method === "PATCH" && parts.length === 1) {

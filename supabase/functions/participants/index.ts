@@ -20,18 +20,25 @@ Deno.serve(async (req: Request) => {
       const meetingId = url.searchParams.get("meeting_id");
       if (!meetingId) return err("meeting_id query param is required");
 
-      const { data, error } = await svc
+      const page    = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
+      const perPage = Math.max(1, Math.min(100, parseInt(url.searchParams.get("per_page") ?? "50", 10)));
+      const from    = (page - 1) * perPage;
+      const to      = from + perPage - 1;
+
+      const { data, error, count } = await svc
         .from("meeting_participants")
         .select(`
           id, user_id, role, department, notified_at, created_at,
           users ( id, name, email, department )
-        `)
+        `, { count: "exact" })
         .eq("meeting_id", meetingId)
         .eq("team_id", caller.team_id)
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: true })
+        .range(from, to);
 
       if (error) return err(error.message);
-      return ok(data);
+      const total = count ?? 0;
+      return ok({ data, page, per_page: perPage, total, total_pages: Math.ceil(total / perPage) });
     }
 
     if (req.method === "POST") {

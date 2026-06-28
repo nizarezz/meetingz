@@ -563,9 +563,9 @@ export default function MeetingDetailPage({
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {comments && comments.length > 0 ? (
+              {comments && comments.data.length > 0 ? (
                 <div className="space-y-3">
-                  {comments.map((c: CommentType) => (
+                  {comments.data.map((c: CommentType) => (
                     <div key={c.id} className="flex gap-3 p-3 rounded-lg bg-accent/30">
                       <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">
                         {(c.users?.name ?? "U")[0].toUpperCase()}
