@@ -31,11 +31,23 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install chromium
+      - name: Build app with staging Supabase
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      - name: Start app in background
+        run: |
+          npm run start &
+          npx wait-on http://localhost:3000 --timeout 60000
       - run: npm run test:e2e
         env:
           TEST_EMAIL: ${{ secrets.TEST_EMAIL }}
           TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
-          PLAYWRIGHT_BASE_URL: ${{ secrets.BASE_URL || 'https://meetingz-next.vercel.app' }}
+          PLAYWRIGHT_BASE_URL: ${{ secrets.BASE_URL }}
+      - name: Cleanup
+        if: always()
+        run: kill $(lsof -t -i:3000) 2>/dev/null || true
 
   deploy:
     needs: check
