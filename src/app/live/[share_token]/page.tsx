@@ -1,8 +1,9 @@
 "use client";
 
-import { use, useRef, useState, useEffect } from "react";
+import { use } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { publicMeetingsApi } from "@/lib/api";
+import { useElapsedTime } from "@/lib/hooks/use-timer";
 import type { LiveMeeting } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -83,20 +84,7 @@ function EndedView({ data }: { data: LiveMeeting }) {
 }
 
 function LiveView({ data }: { data: LiveMeeting }) {
-  const [elapsed, setElapsed] = useState(() => computeElapsed(data));
-  const dataRef = useRef(data);
-  dataRef.current = data;
-
-  useEffect(() => {
-    if (!data.is_timer_running) {
-      setElapsed(computeElapsed(data));
-      return;
-    }
-    const tick = () => setElapsed(computeElapsed(dataRef.current));
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [data.is_timer_running]);
+  const elapsed = useElapsedTime(data);
 
   const currentItem = data.agenda_items?.[data.active_item_index ?? 0];
 
