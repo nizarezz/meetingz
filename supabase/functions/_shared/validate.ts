@@ -135,3 +135,12 @@ export const updateActionItemSchema = z.object({
   due_date: z.string().optional(),
   priority: z.enum(["low", "medium", "high"]).optional(),
 });
+
+export const createOutcomeNoteSchema = z.object({
+  meeting_id: z.string().uuid("meeting_id is required"),
+  outcome_id: z.string().uuid("outcome_id is required"),
+  text: z.string().min(1, "text is required").max(2000),
+  sort_order: z.number().int().min(0),
+  source: z.enum(["manual", "comment"]),
+  source_comment_id: z.string().uuid().optional(),
+});
