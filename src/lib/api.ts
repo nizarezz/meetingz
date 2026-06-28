@@ -25,6 +25,8 @@ async function getToken() {
   return data.session?.access_token;
 }
 
+const UNAUTHORIZED = new Set([401]);
+
 export function api() {
   const prefix = `${FUNCTIONS_BASE}/`;
   return ky.create({
@@ -36,6 +38,22 @@ export function api() {
           if (token) {
             request.headers.set("Authorization", `Bearer ${token}`);
           }
+        },
+      ],
+      afterResponse: [
+        async (request, _options, response) => {
+          if (!UNAUTHORIZED.has(response.status)) return response;
+          const { data } = await supabase.auth.refreshSession();
+          if (!data.session) {
+            await supabase.auth.signOut();
+            if (typeof window !== "undefined") {
+              window.location.href = "/login";
+            }
+            return response;
+          }
+          const retry = request.clone();
+          retry.headers.set("Authorization", `Bearer ${data.session.access_token}`);
+          return fetch(retry);
         },
       ],
     },

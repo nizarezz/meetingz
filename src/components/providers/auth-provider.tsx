@@ -27,8 +27,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const role = session?.user?.user_metadata?.role ?? null;
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
+      if (event === "SIGNED_OUT" && typeof window !== "undefined") {
+        if (!window.location.pathname.startsWith("/login")) {
+          window.location.href = "/login";
+        }
+      }
     });
     supabase.auth.getSession().then(async ({ data }) => {
       setSession(data.session);
