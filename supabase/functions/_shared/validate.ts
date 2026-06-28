@@ -56,12 +56,6 @@ export const createCommentSchema = z.object({
   text: z.string().min(1, "text is required"),
 });
 
-export const updateActionItemSchema = z.object({
-  done: z.boolean().optional(),
-  text: z.string().optional(),
-  due_date: z.string().optional(),
-});
-
 export const createParticipantSchema = z.object({
   meeting_id: z.string().uuid(),
   user_id: z.string().uuid(),
@@ -123,4 +117,21 @@ export const updatePreferencesSchema = z.object({
 export const createNotificationPrefsSchema = z.object({
   meeting_reminder_email: z.boolean().optional(),
   outcome_prompt_email: z.boolean().optional(),
+});
+
+export const createActionItemSchema = z.object({
+  meeting_id: z.string().uuid("meeting_id is required"),
+  text: z.string().min(1, "text is required"),
+  assignee_id: z.string().uuid().optional(),
+  assignee_email: z.string().email().optional(),
+  due_date: z.string().optional(),
+  priority: z.enum(["low", "medium", "high"]).optional(),
+});
+
+export const updateActionItemSchema = z.object({
+  done: z.boolean().optional(),
+  status: z.enum(["done", "blocked"]).optional(),
+  text: z.string().optional(),
+  due_date: z.string().optional(),
+  priority: z.enum(["low", "medium", "high"]).optional(),
 });
