@@ -265,7 +265,7 @@ Deno.serve(async (req: Request) => {
           svc.from("outcomes").select("id, primary_outcome, notes, created_at").eq("meeting_id", id),
           svc.from("outcome_notes").select("text, sort_order, source, created_at, created_by_user:users!created_by(name)").eq("meeting_id", id).order("sort_order", { ascending: true }),
           svc.from("action_items").select("id, text, status, priority, assignee_id, assignee_email, due_date, created_at, meetings!inner(title)").eq("meeting_id", id),
-          svc.from("comments").select("id, user_id, text, created_at, users!inner(name), pulled_to_outcome").eq("meeting_id", id).order("created_at", { ascending: true }),
+          svc.from("comments").select("id, user_id, text, created_at, users!comments_user_id_fkey(name), pulled_to_outcome").eq("meeting_id", id).order("created_at", { ascending: true }),
         ]);
 
         const report_snapshot = {

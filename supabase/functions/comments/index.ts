@@ -22,7 +22,7 @@ Deno.serve(async (req: Request) => {
 
       const { data, error, count } = await caller.client
         .from("comments")
-        .select("id, meeting_id, user_id, text, created_at, users!inner(name, role)", { count: "exact" })
+        .select("id, meeting_id, user_id, text, created_at, users!comments_user_id_fkey(name, role)", { count: "exact" })
         .eq("meeting_id", meetingId)
         .eq("team_id", caller.team_id)
         .order("created_at", { ascending: true })
@@ -66,7 +66,7 @@ Deno.serve(async (req: Request) => {
           text: text.trim(),
           team_id: caller.team_id,
         })
-        .select("id, meeting_id, user_id, text, created_at, users!inner(name, role)")
+        .select("id, meeting_id, user_id, text, created_at, users!comments_user_id_fkey(name, role)")
         .single();
 
       if (insertErr) return err(insertErr.message);
