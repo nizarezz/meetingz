@@ -8,7 +8,7 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      cookieOptions: { name: "mtp-auth" },
+      cookieOptions: { name: "mtp-auth", secure: process.env.NEXT_PUBLIC_SUPABASE_URL?.startsWith("https://") },
       cookies: {
         getAll() {
           return request.cookies.getAll();
