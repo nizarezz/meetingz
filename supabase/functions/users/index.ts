@@ -1,6 +1,10 @@
-import { ok, err, preflight } from "../_shared/cors.ts";
-import { userClient, serviceClient } from "../_shared/supabase.ts";
+import { ok, err, preflight, paginated } from "../_shared/cors.ts";
+import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
+import { sendNotificationEmail } from "../_shared/resend.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { audit } from "../_shared/audit.ts";
+import { captureException } from "../_shared/sentry.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -17,13 +21,14 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET" && !id) {
       const department = url.searchParams.get("department");
       const role       = url.searchParams.get("role");
-      const hasPage    = url.searchParams.has("page") || url.searchParams.has("per_page");
-      const page       = parseInt(url.searchParams.get("page") ?? "1", 10);
-      const perPage    = parseInt(url.searchParams.get("per_page") ?? "1000", 10);
+      const page       = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
+      const perPage    = Math.max(1, Math.min(100, parseInt(url.searchParams.get("per_page") ?? "50", 10)));
       const from       = (page - 1) * perPage;
       const to         = from + perPage - 1;
 
-      let query = svc
+      const search = url.searchParams.get("search");
+
+      let query = caller.client
         .from("users")
         .select("id, email, name, role, department, is_approved, created_at", { count: "exact" })
         .is("deleted_at", null)
@@ -32,15 +37,16 @@ Deno.serve(async (req: Request) => {
       if (caller.team_id) query = query.eq("team_id", caller.team_id);
       if (department) query = query.eq("department", department);
       if (role)       query = query.eq("role", role);
+      if (search)     query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%`);
 
-      const queryFn = hasPage ? query.range(from, to) : query;
-      const { data, error, count } = await queryFn;
+      query = query.range(from, to);
+      const { data, error, count } = await query;
       if (error) return err(error.message);
-      return ok({ data, total: count ?? 0, page, per_page: perPage });
+      return paginated(data ?? [], page, perPage, count ?? 0);
     }
 
     if (req.method === "GET" && id) {
-      const { data, error } = await svc
+      const { data, error } = await caller.client
         .from("users")
         .select("id, email, name, role, department, is_approved, fcm_token, created_at")
         .eq("id", id)
@@ -87,11 +93,29 @@ Deno.serve(async (req: Request) => {
         .single();
 
       if (error) return err(error.message, 404);
+      await audit(caller.id, caller.team_id, "user_approve", "user", id, {});
+      await svc.auth.admin.updateUserById(id, { user_metadata: { role: data.role } });
       return ok(data);
     }
 
     if (req.method === "PATCH" && id && action === "deactivate") {
-      requireRole(caller, SUPER_ADMIN_ROLES);
+      requireRole(caller, ADMIN_ROLES);
+
+      if (id === caller.id) return err("Cannot deactivate yourself", 403);
+
+      const { data: target } = await caller.client
+        .from("users")
+        .select("role")
+        .eq("id", id)
+        .eq("team_id", caller.team_id)
+        .is("deleted_at", null)
+        .single();
+
+      if (!target) return err("User not found", 404);
+
+      if (!SUPER_ADMIN_ROLES.includes(caller.role as any) && ADMIN_ROLES.includes(target.role as any)) {
+        return err("Cannot deactivate an admin or super admin", 403);
+      }
 
       const { error } = await svc
         .from("users")
@@ -100,18 +124,21 @@ Deno.serve(async (req: Request) => {
         .eq("team_id", caller.team_id);
 
       if (error) return err(error.message);
+      await audit(caller.id, caller.team_id, "user_deactivate", "user", id, {});
       return ok({ deactivated: true });
     }
 
-    if (req.method === "POST" && action === "invite") {
+    if (req.method === "POST" && id === "invite") {
       requireRole(caller, ADMIN_ROLES);
+      checkRateLimit(`invite:${caller.team_id}`, 10, "invites");
 
       const body = await req.json();
       const { email, name, department, role = "member" } = body;
 
-      if (!email || !name) return err("email and name are required");
+      if (!email) return err("email is required");
+      const displayName = name || email.split("@")[0];
 
-      const { data: existing } = await svc
+      const { data: existing } = await caller.client
         .from("users")
         .select("id, deleted_at")
         .eq("email", email)
@@ -125,10 +152,10 @@ Deno.serve(async (req: Request) => {
         const { data, error } = await svc
           .from("users")
           .update({
-            name,
+            name: displayName,
             department: department ?? null,
             role,
-            is_approved: false,
+            is_approved: true,
             deleted_at: null,
           })
           .eq("id", existing.id)
@@ -136,15 +163,72 @@ Deno.serve(async (req: Request) => {
           .single();
 
         if (error) return err(error.message);
+        await audit(caller.id, caller.team_id, "user_invite", "user", data.id, { email, role });
         return ok(data);
       }
 
-      return err("User must first sign up via Supabase Auth before being invited to a team", 400);
+      const tempPassword = crypto.randomUUID().slice(0, 12) + "Tg1!";
+      const { data: newUser, error: inviteErr } = await svc.auth.admin.createUser({
+        email,
+        password: tempPassword,
+        email_confirm: true,
+      });
+
+      if (inviteErr) return err(inviteErr.message);
+      if (!newUser?.user?.id) return err("Failed to create user");
+
+      const { data: profile, error: profileErr } = await svc
+        .from("users")
+        .insert({
+          id: newUser.user.id,
+          email,
+          name: displayName,
+          department: department ?? null,
+          role,
+          team_id: caller.team_id,
+          is_approved: true,
+        })
+        .select("id, email, name, role, department, is_approved")
+        .single();
+
+      if (profileErr) {
+        return err(profileErr.message);
+      }
+
+      await svc.auth.admin.updateUserById(newUser.user.id, {
+        user_metadata: { role, name: displayName, department },
+      });
+
+      const { data: team } = await caller.client
+        .from("teams")
+        .select("name")
+        .eq("id", caller.team_id)
+        .single();
+
+      const baseUrl = Deno.env.get("APP_URL") ?? "http://localhost:3000";
+      try {
+        await sendNotificationEmail(email, "invitation", `You're invited to ${team?.name ?? "Terra Meetings"}`, {
+          name: displayName,
+          teamName: team?.name ?? "the team",
+          appUrl: baseUrl,
+          email,
+          password: tempPassword,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        await captureException(msg, { context: "users-invite-email" });
+        console.error("Failed to send invitation email:", e);
+      }
+
+      await audit(caller.id, caller.team_id, "user_invite", "user", profile.id, { email, role });
+      return ok(profile, 201);
     }
 
     return err("Not found", 404);
   } catch (e) {
     if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    await captureException(msg, { context: "users" });
     console.error(e);
     return err("Internal server error", 500);
   }

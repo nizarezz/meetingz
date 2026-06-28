@@ -40,6 +40,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# playwright
+/test-results/
+/playwright-report/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
@@ -47,3 +51,5 @@ next-env.d.ts
 # opencode.opencode/
 
 supabase/.temp/
+.vercel
+.env*

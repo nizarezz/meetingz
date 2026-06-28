@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/providers/auth-provider";
+import { ADMIN_ROLES } from "@/lib/types";
+import type { UserRole } from "@/lib/types";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -29,6 +32,13 @@ type TemplateFormData = z.infer<typeof templateSchema>;
 
 export default function NewTemplatePage() {
   const router = useRouter();
+  const { role } = useAuth();
+
+  useEffect(() => {
+    if (!ADMIN_ROLES.includes(role as UserRole)) {
+      router.replace("/organization");
+    }
+  }, [role, router]);
   const createTemplate = useCreateTemplate();
   const { data: departments } = useDepartments();
 

@@ -2,10 +2,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { templatesApi } from "@/lib/api";
 import type { CreateTemplateInput } from "@/lib/types";
 
-export function useTemplates(params?: { department?: string; meeting_type?: string }) {
+export function useTemplates(params?: { department?: string; meeting_type?: string; page?: number; perPage?: number }) {
   return useQuery({
     queryKey: ["templates", params],
-    queryFn: () => templatesApi.list(params),
+    queryFn: async () => {
+      const res = await templatesApi.list(params);
+      return res.data;
+    },
   });
 }
 

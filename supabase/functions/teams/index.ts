@@ -1,6 +1,9 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { audit } from "../_shared/audit.ts";
+import { captureException } from "../_shared/sentry.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -11,7 +14,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "GET") {
       if (!caller.team_id) return ok(null);
-      const { data, error } = await svc
+      const { data, error } = await caller.client
         .from("teams")
         .select("id, name, created_at")
         .eq("id", caller.team_id)
@@ -24,6 +27,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "PATCH") {
       requireRole(caller, SUPER_ADMIN_ROLES);
+      checkRateLimit(`teams:update:${caller.team_id}`, 10, "team updates");
 
       const body = await req.json();
       if (!body.name) return err("name is required");
@@ -36,12 +40,15 @@ Deno.serve(async (req: Request) => {
         .single();
 
       if (error) return err(error.message);
+      await audit(caller.id, caller.team_id, "team_update", "team", caller.team_id, { name: body.name });
       return ok(data);
     }
 
     return err("Method not allowed", 405);
   } catch (e) {
     if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    await captureException(msg, { context: "teams" });
     console.error(e);
     return err("Internal server error", 500);
   }

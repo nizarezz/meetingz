@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useMeetings } from "@/lib/hooks/use-meetings";
+import { useRealtimeInvalidation } from "@/lib/hooks/use-realtime";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -12,12 +13,18 @@ import { Label } from "@/components/ui/label";
 import { Plus, Timer, CheckSquare, TrendingUp, Users } from "lucide-react";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MEETING_STATUS_BADGE } from "@/lib/types";
+import { MEETING_STATUS_BADGE, ADMIN_ROLES } from "@/lib/types";
+import type { UserRole } from "@/lib/types";
 
 export default function DashboardPage() {
-  const { user } = useAuth();
-  const { data: page, isLoading } = useMeetings();
+  const { user, role } = useAuth();
+  const isAdmin = ADMIN_ROLES.includes(role as UserRole);
+  const { data: page, isLoading, error } = useMeetings();
   const allMeetings = page?.data ?? [];
+
+  useRealtimeInvalidation([
+    { channel: "dashboard-meetings", table: "meetings", events: ["*"], queryKeys: [["meetings"]] },
+  ]);
   const name = user?.user_metadata?.name ?? user?.email ?? "User";
 
   const [dateFrom, setDateFrom] = useState("");
@@ -74,6 +81,14 @@ export default function DashboardPage() {
     { label: "Participants", value: new Set(meetings.flatMap((m) => m.participants?.map((p) => p.user_id) ?? [])).size, icon: Users, color: "text-amber-500" },
   ];
 
+  if (error) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <p className="text-sm text-destructive">Failed to load meetings</p>
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="space-y-8">
@@ -115,9 +130,11 @@ export default function DashboardPage() {
           <h1 className="font-display text-3xl text-foreground">Welcome, {name}</h1>
           <p className="mt-1 text-sm text-muted-foreground">Here is your meeting overview</p>
         </div>
-        <Link href="/meetings/new" className={buttonVariants({})}>
-          <Plus className="mr-2 h-4 w-4" /> New Meeting
-        </Link>
+        {isAdmin && (
+          <Link href="/meetings/new" className={buttonVariants({})}>
+            <Plus className="mr-2 h-4 w-4" /> New Meeting
+          </Link>
+        )}
       </div>
 
       <div className="flex flex-wrap items-end gap-4">

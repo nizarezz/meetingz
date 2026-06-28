@@ -1,6 +1,8 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { captureException } from "../_shared/sentry.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -13,7 +15,7 @@ Deno.serve(async (req: Request) => {
     const svc = serviceClient();
 
     if (req.method === "GET" && parts[0] === "preferences") {
-      const { data, error } = await svc
+      const { data, error } = await caller.client
         .from("notification_preferences")
         .select("meeting_reminder_email, outcome_prompt_email")
         .eq("user_id", caller.id)
@@ -29,6 +31,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "PATCH" && parts[0] === "preferences") {
+      checkRateLimit(`notifications:update:${caller.team_id}`, 30, "notification preference updates");
       const body = await req.json();
       const allowed = [
         "meeting_reminder_email",
@@ -55,6 +58,8 @@ Deno.serve(async (req: Request) => {
     return err("Not found", 404);
   } catch (e) {
     if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    await captureException(msg, { context: "notifications" });
     console.error(e);
     return err("Internal server error", 500);
   }

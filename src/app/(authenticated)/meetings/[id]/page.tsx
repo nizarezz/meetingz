@@ -6,22 +6,27 @@ import { useRouter } from "next/navigation";
 import { useMeeting, useUpdateMeeting, useDeleteMeeting } from "@/lib/hooks/use-meetings";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useUser } from "@/lib/hooks/use-users";
-import { useTimer, useStartTimer, usePauseTimer, useResumeTimer, useNextItem, useResetTimer } from "@/lib/hooks/use-timer";
+import { useTimer, useStartTimer, usePauseTimer, useResumeTimer, useNextItem, useResetTimer, useEndTimer, useAddTime } from "@/lib/hooks/use-timer";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { outcomesApi } from "@/lib/api";
+import { outcomesApi, commentsApi, usersApi } from "@/lib/api";
+import { AssigneePicker } from "@/components/assignee-picker";
+import { ScheduleEditor, DateEditor } from "@/components/schedule-editor";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { useRealtimeInvalidation } from "@/lib/hooks/use-realtime";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Play, Pause, SkipForward, RotateCcw, Timer as TimerIcon, CheckSquare, Plus, Trash2, Printer, Loader2 } from "lucide-react";
+import { ArrowLeft, Play, Pause, SkipForward, RotateCcw, Timer as TimerIcon, CheckSquare, Plus, Trash2, Printer, Loader2, MessageSquare, Send, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import type { PrimaryOutcome, ActionItem } from "@/lib/types";
+import type { PrimaryOutcome, ActionItem, Comment as CommentType } from "@/lib/types";
 import { formatDuration, getErrorMsg } from "@/lib/utils";
 import { MEETING_STATUS_BADGE, SUPER_ADMIN_ROLES } from "@/lib/types";
 import type { UserRole } from "@/lib/types";
+import { ADMIN_ROLES } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function MeetingDetailPage({
@@ -39,7 +44,10 @@ export default function MeetingDetailPage({
   const resumeTimer = useResumeTimer();
   const nextItem = useNextItem();
   const resetTimer = useResetTimer();
-  const { user } = useAuth();
+  const endTimer = useEndTimer();
+  const addTime = useAddTime();
+  const { user, role } = useAuth();
+  const isAdmin = ADMIN_ROLES.includes(role as UserRole);
   const { data: currentUser } = useUser(user?.id ?? "");
   const deleteMeeting = useDeleteMeeting();
   const router = useRouter();
@@ -78,18 +86,43 @@ export default function MeetingDetailPage({
   const { data: existingOutcome } = useQuery({
     queryKey: ["outcomes", id],
     queryFn: () => outcomesApi.get(id),
-    enabled: !!meeting && meeting.status !== "planned",
+    enabled: !!meeting,
   });
 
   const [primaryOutcome, setPrimaryOutcome] = useState<PrimaryOutcome>("Decision Made");
-  const [actionItems, setActionItems] = useState<ActionItem[]>([{ task: "", assignee: "", due: "" }]);
+  const [actionItems, setActionItems] = useState<ActionItem[]>([{ text: "", assignee_email: "", due_date: "" }]);
   const [notes, setNotes] = useState("");
+  useRealtimeInvalidation([
+    { channel: "meeting-detail-meeting", table: "meetings", events: ["UPDATE"], filter: `id=eq.${id}`, queryKeys: [["meetings", id], ["timer", id], ["meetings"]] },
+    { channel: "meeting-detail-timer", table: "meeting_timer_state", events: ["*"], filter: `meeting_id=eq.${id}`, queryKeys: [["timer", id]] },
+    { channel: "meeting-detail-outcomes", table: "outcomes", events: ["UPDATE"], filter: `meeting_id=eq.${id}`, queryKeys: [["outcomes", id], ["outcomes"]] },
+    { channel: "meeting-detail-comments", table: "comments", events: ["INSERT"], filter: `meeting_id=eq.${id}`, queryKeys: [["comments", id]] },
+  ]);
+
+  const [commentText, setCommentText] = useState("");
+
+  const { data: comments } = useQuery({
+    queryKey: ["comments", id],
+    queryFn: () => commentsApi.list(id),
+    enabled: !!id,
+  });
+
+  const addCommentMutation = useMutation({
+    mutationFn: (text: string) => commentsApi.add(id, text),
+    onSuccess: () => {
+      setCommentText("");
+      qc.invalidateQueries({ queryKey: ["comments", id] });
+    },
+    onError: async (e) => toast.error(await getErrorMsg(e)),
+  });
+
+
 
   useEffect(() => {
     if (existingOutcome) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setPrimaryOutcome((existingOutcome.primary_outcome as PrimaryOutcome) ?? "Decision Made");
-      setActionItems(existingOutcome.action_items?.length ? existingOutcome.action_items : [{ task: "", assignee: "", due: "" }]);
+      setActionItems(existingOutcome.action_items?.length ? existingOutcome.action_items : [{ text: "", assignee_email: "", due_date: "" }]);
       setNotes(existingOutcome.notes ?? "");
     }
   }, [existingOutcome]);
@@ -98,7 +131,7 @@ export default function MeetingDetailPage({
     mutationFn: () => {
       const body = {
         primary_outcome: primaryOutcome as PrimaryOutcome,
-        action_items: actionItems.filter((a) => a.task.trim()),
+        action_items: actionItems.filter((a) => a.text.trim()),
         notes,
       };
       if (existingOutcome) return outcomesApi.update(id, body);
@@ -113,7 +146,7 @@ export default function MeetingDetailPage({
   });
 
   function addActionItem() {
-    setActionItems((prev) => [...prev, { task: "", assignee: "", due: "" }]);
+    setActionItems((prev) => [...prev, { text: "", assignee_email: "", due_date: "" }]);
   }
   function removeActionItem(index: number) {
     setActionItems((prev) => prev.filter((_, i) => i !== index));
@@ -122,6 +155,22 @@ export default function MeetingDetailPage({
     setActionItems((prev) =>
       prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
     );
+  }
+
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviteIndex, setInviteIndex] = useState(-1);
+  const [inviteOpen, setInviteOpen] = useState(false);
+
+  const inviteMutation = useMutation({
+    mutationFn: ({ email, name }: { email: string; name?: string }) =>
+      usersApi.invite({ email, name, role: "member" }),
+  });
+
+  function handleInvite(email: string, name?: string) {
+    setInviteEmail(email);
+    setInviteName(name ?? email.split("@")[0]);
+    setInviteOpen(true);
   }
 
   if (isLoading) {
@@ -195,6 +244,20 @@ export default function MeetingDetailPage({
             {meeting.scheduled_at && ` &middot; ${format(new Date(meeting.scheduled_at), "MMM d, yyyy h:mm a")}`}
           </p>
         </div>
+        {meeting.share_token && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => {
+              const url = `${window.location.origin}/live/${meeting.share_token}`;
+              navigator.clipboard.writeText(url);
+              toast.success("Live link copied to clipboard");
+            }}
+          >
+            <Share2 className="h-4 w-4" /> Share Live
+          </Button>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -229,55 +292,90 @@ export default function MeetingDetailPage({
                   </div>
                 )}
 
-                <div className="flex justify-center gap-3">
-                  {!timer.is_running ? (
+                {isAdmin && (
+                  <div className="flex justify-center gap-3">
+                    {/* Start / Pause toggle */}
                     <Button
                       size="lg"
-                      className="h-14 w-14 rounded-full"
+                      className={`h-14 w-14 rounded-full ${timer.is_running ? "bg-amber-500 hover:bg-amber-600" : ""}`}
                       onClick={() => {
-                        const fn = timer.paused_at ? resumeTimer.mutate : startTimer.mutate;
-                        fn(id, { onError: async (e) => toast.error(await getErrorMsg(e)) });
+                        if (timer.is_running) {
+                          pauseTimer.mutate(id, { onError: async (e) => toast.error(await getErrorMsg(e)) });
+                        } else {
+                          const fn = timer.paused_at ? resumeTimer.mutate : startTimer.mutate;
+                          fn(id, { onError: async (e) => toast.error(await getErrorMsg(e)) });
+                        }
                       }}
-                      disabled={startTimer.isPending || resumeTimer.isPending}
+                      disabled={startTimer.isPending || pauseTimer.isPending || resumeTimer.isPending}
                     >
-                      {(startTimer.isPending || resumeTimer.isPending)
+                      {(startTimer.isPending || pauseTimer.isPending || resumeTimer.isPending)
                         ? <Loader2 className="h-6 w-6 animate-spin" />
-                        : <Play className="h-6 w-6 fill-current" />}
+                        : timer.is_running
+                          ? <Pause className="h-6 w-6" />
+                          : <Play className="h-6 w-6 fill-current" />}
                     </Button>
-                  ) : (
+
+                    {/* Skip */}
+                    {meeting.agenda_items && timer.active_item_index < meeting.agenda_items.length - 1 && (
+                      <Button
+                        size="lg"
+                        variant="outline"
+                        className="h-14 w-14 rounded-full"
+                        onClick={() => nextItem.mutate(id, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
+                        disabled={nextItem.isPending}
+                      >
+                        {nextItem.isPending ? <Loader2 className="h-6 w-6 animate-spin" /> : <SkipForward className="h-6 w-6" />}
+                      </Button>
+                    )}
+
+                    {/* Add time */}
+                    <div className="flex gap-1 items-center">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-14 w-14 rounded-full text-xs"
+                        onClick={() => addTime.mutate({ meetingId: id, seconds: 60 }, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
+                        disabled={addTime.isPending}
+                      >
+                        +1m
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-14 w-14 rounded-full text-xs"
+                        onClick={() => addTime.mutate({ meetingId: id, seconds: 300 }, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
+                        disabled={addTime.isPending}
+                      >
+                        +5m
+                      </Button>
+                    </div>
+
+                    {/* End & Log */}
                     <Button
                       size="lg"
-                      variant="outline"
-                      className="h-14 w-14 rounded-full"
-                      onClick={() => pauseTimer.mutate(id, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
-                      disabled={pauseTimer.isPending}
+                      variant="destructive"
+                      className="h-14 rounded-full px-6"
+                      onClick={() => endTimer.mutate(id, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
+                      disabled={endTimer.isPending}
                     >
-                      {pauseTimer.isPending ? <Loader2 className="h-6 w-6 animate-spin" /> : <Pause className="h-6 w-6" />}
+                      {endTimer.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckSquare className="mr-2 h-4 w-4" />}
+                      End & Log
                     </Button>
-                  )}
 
-                  {timer.is_running && meeting.agenda_items && timer.active_item_index < meeting.agenda_items.length - 1 && (
-                    <Button
-                      size="lg"
-                      variant="outline"
-                      className="h-14 w-14 rounded-full"
-                      onClick={() => nextItem.mutate(id, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
-                      disabled={nextItem.isPending}
-                    >
-                      {nextItem.isPending ? <Loader2 className="h-6 w-6 animate-spin" /> : <SkipForward className="h-6 w-6" />}
-                    </Button>
-                  )}
-
-                  <Button
-                    size="lg"
-                    variant="outline"
-                    className="h-14 w-14 rounded-full"
-                    onClick={() => resetTimer.mutate(id, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
-                    disabled={resetTimer.isPending}
-                  >
-                    {resetTimer.isPending ? <Loader2 className="h-6 w-6 animate-spin" /> : <RotateCcw className="h-6 w-6" />}
-                  </Button>
-                </div>
+                    {/* Reset (super admin only) */}
+                    {SUPER_ADMIN_ROLES.includes(currentUser?.role as UserRole) && (
+                      <Button
+                        size="lg"
+                        variant="outline"
+                        className="h-14 w-14 rounded-full"
+                        onClick={() => resetTimer.mutate(id, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
+                        disabled={resetTimer.isPending}
+                      >
+                        {resetTimer.isPending ? <Loader2 className="h-6 w-6 animate-spin" /> : <RotateCcw className="h-6 w-6" />}
+                      </Button>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -327,72 +425,102 @@ export default function MeetingDetailPage({
                   <CardTitle>Primary Outcome</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <Select value={primaryOutcome} onValueChange={(v) => setPrimaryOutcome(v as PrimaryOutcome)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Decision Made">Decision Made</SelectItem>
-                      <SelectItem value="Action Items Assigned">Action Items Assigned</SelectItem>
-                      <SelectItem value="Postponed">Postponed</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  {isAdmin ? (
+                    <Select value={primaryOutcome} onValueChange={(v) => setPrimaryOutcome(v as PrimaryOutcome)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Decision Made">Decision Made</SelectItem>
+                        <SelectItem value="Action Items Assigned">Action Items Assigned</SelectItem>
+                        <SelectItem value="Postponed">Postponed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="text-sm">{primaryOutcome}</p>
+                  )}
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle>Action Items</CardTitle>
-                  <Button type="button" variant="outline" size="sm" onClick={addActionItem}>
-                    <Plus className="mr-1 h-3 w-3" /> Add
-                  </Button>
+                  {isAdmin && (
+                    <Button type="button" variant="outline" size="sm" onClick={addActionItem}>
+                      <Plus className="mr-1 h-3 w-3" /> Add
+                    </Button>
+                  )}
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {actionItems.map((item, i) => (
-                    <div key={i} className="space-y-2 p-3 border rounded-lg">
-                      <div className="flex items-start gap-2">
-                        <Input
-                          value={item.task}
-                          onChange={(e) => updateActionItem(i, "task", e.target.value)}
-                          placeholder="Task description"
-                          className="flex-1"
-                        />
-                        {actionItems.length > 1 && (
-                          <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => removeActionItem(i)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                  {actionItems.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No action items</p>
+                  ) : (
+                    actionItems.map((item, i) => (
+                      <div key={i} className="space-y-2 p-3 border rounded-lg">
+                        {isAdmin ? (
+                          <>
+                            <div className="flex items-start gap-2">
+                              <Input
+                                value={item.text}
+                                onChange={(e) => updateActionItem(i, "text", e.target.value)}
+                                placeholder="Task description"
+                                className="flex-1"
+                              />
+                              {actionItems.length > 1 && (
+                                <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => removeActionItem(i)}>
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              )}
+                            </div>
+                            <div className="flex gap-2">
+                              <div className="flex-1">
+                                <AssigneePicker
+                                  value={item.assignee_email ?? ""}
+                                  onChange={(v, userId) => {
+                                    updateActionItem(i, "assignee_email", v);
+                                    updateActionItem(i, "assignee_id", userId ?? "");
+                                  }}
+                                  onInvite={(email) => { setInviteIndex(i); handleInvite(email); }}
+                                />
+                              </div>
+                              <div className="w-36">
+                                <DateEditor
+                                  value={item.due_date ?? ""}
+                                  label="Due date"
+                                  onChange={(v) => updateActionItem(i, "due_date", v)}
+                                />
+                              </div>
+                              <Button
+                                type="button"
+                                variant={item.done ? "default" : "outline"}
+                                size="icon"
+                                className="shrink-0"
+                                onClick={() => updateActionItem(i, "done", !item.done)}
+                              >
+                                <CheckSquare className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <p className={`text-sm ${item.done ? "line-through text-muted-foreground" : ""}`}>
+                                {item.text}
+                              </p>
+                              {(item.assignee_email || item.due_date) && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {item.assignee_email && <span>{item.assignee_email}</span>}
+                                  {item.assignee_email && item.due_date && <span> · </span>}
+                                  {item.due_date && <span>Due {item.due_date}</span>}
+                                </p>
+                              )}
+                            </div>
+                            {item.done && <CheckSquare className="h-4 w-4 text-emerald-500 shrink-0" />}
+                          </div>
                         )}
                       </div>
-                      <div className="flex gap-2">
-                        <div className="flex-1">
-                          <Input
-                            value={item.assignee ?? ""}
-                            onChange={(e) => updateActionItem(i, "assignee", e.target.value)}
-                            placeholder="Assignee email"
-                            type="email"
-                            className="text-sm"
-                          />
-                        </div>
-                        <div className="w-40">
-                          <Input
-                            type="date"
-                            value={item.due ?? ""}
-                            onChange={(e) => updateActionItem(i, "due", e.target.value)}
-                            className="text-sm"
-                          />
-                        </div>
-                        <Button
-                          type="button"
-                          variant={item.done ? "default" : "outline"}
-                          size="icon"
-                          className="shrink-0"
-                          onClick={() => updateActionItem(i, "done", !item.done)}
-                        >
-                          <CheckSquare className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </CardContent>
               </Card>
 
@@ -401,25 +529,86 @@ export default function MeetingDetailPage({
                   <CardTitle>Notes</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <Textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Additional notes or comments..."
-                    rows={4}
-                  />
+                  {isAdmin ? (
+                    <Textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Additional notes or comments..."
+                      rows={4}
+                    />
+                  ) : (
+                    <p className="text-sm whitespace-pre-wrap">{notes || "No notes"}</p>
+                  )}
                 </CardContent>
               </Card>
 
-              <Button
-                className="w-full"
-                onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending}
-              >
-                {saveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Save Outcome
-              </Button>
+              {isAdmin && (
+                <Button
+                  className="w-full"
+                  onClick={() => saveMutation.mutate()}
+                  disabled={saveMutation.isPending}
+                >
+                  {saveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save Outcome
+                </Button>
+              )}
             </>
           )}
+
+          {/* Comments Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5" /> Comments
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {comments && comments.data.length > 0 ? (
+                <div className="space-y-3">
+                  {comments.data.map((c: CommentType) => (
+                    <div key={c.id} className="flex gap-3 p-3 rounded-lg bg-accent/30">
+                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                        {(c.users?.name ?? "U")[0].toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium">{c.users?.name ?? "Unknown"}</span>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">{c.users?.role ?? "member"}</Badge>
+                          <span className="text-[10px] text-muted-foreground">
+                            {format(new Date(c.created_at), "MMM d, h:mm a")}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-sm">{c.text}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No comments yet</p>
+              )}
+
+              <div className="flex gap-2">
+                <Input
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  placeholder="Add a comment..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && commentText.trim()) {
+                      e.preventDefault();
+                      addCommentMutation.mutate(commentText.trim());
+                    }
+                  }}
+                />
+                <Button
+                  size="icon"
+                  onClick={() => commentText.trim() && addCommentMutation.mutate(commentText.trim())}
+                  disabled={!commentText.trim() || addCommentMutation.isPending}
+                >
+                  {addCommentMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Right Column - Sidebar */}
@@ -429,16 +618,14 @@ export default function MeetingDetailPage({
               <CardTitle>Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <div>
-                <p className="text-muted-foreground">Duration</p>
-                <p className="font-medium">{formatDuration(meeting.scheduled_duration)}</p>
-              </div>
-              {meeting.scheduled_at && (
-                <div>
-                  <p className="text-muted-foreground">Scheduled</p>
-                  <p className="font-medium">{format(new Date(meeting.scheduled_at), "MMM d, yyyy h:mm a")}</p>
-                </div>
-              )}
+              <ScheduleEditor
+                scheduledAt={meeting.scheduled_at}
+                scheduledDuration={meeting.scheduled_duration}
+                onSave={async (patch) => {
+                  await updateMeeting.mutateAsync({ id, patch });
+                }}
+                disabled={!isAdmin}
+              />
               {meeting.vibe && (
                 <div>
                   <p className="text-muted-foreground">Vibe</p>
@@ -466,7 +653,7 @@ export default function MeetingDetailPage({
           </Button>
 
           {/* Sidebar Actions */}
-          {meeting.status === "active" && (
+          {meeting.status === "active" && isAdmin && (
             <Button
               className="w-full"
               variant="outline"
@@ -483,7 +670,7 @@ export default function MeetingDetailPage({
             </Button>
           )}
 
-          {(meeting.status === "completed" || meeting.status === "logged" || meeting.status === "active") && (
+          {(meeting.status === "completed" || meeting.status === "logged" || meeting.status === "active") && isAdmin && (
             <Button
               className="w-full"
               onClick={() => saveMutation.mutate()}
@@ -514,6 +701,46 @@ export default function MeetingDetailPage({
           )}
         </div>
       </div>
+
+      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Invite user</DialogTitle>
+            <DialogDescription>
+              {inviteEmail} is not registered. Enter a name to invite them.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Name</label>
+              <Input
+                value={inviteName}
+                onChange={(e) => setInviteName(e.target.value)}
+                placeholder="Full name"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInviteOpen(false)}>Cancel</Button>
+            <Button
+              onClick={async () => {
+                try {
+                  const user = await inviteMutation.mutateAsync({ email: inviteEmail, name: inviteName });
+                  updateActionItem(inviteIndex, "assignee_email", user.email);
+                  setInviteOpen(false);
+                  toast.success(`${inviteName} invited and assigned`);
+                } catch (e) {
+                  toast.error(await getErrorMsg(e));
+                }
+              }}
+              disabled={inviteMutation.isPending || !inviteName.trim()}
+            >
+              {inviteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Invite &amp; assign
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
