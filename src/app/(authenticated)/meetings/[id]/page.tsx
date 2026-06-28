@@ -8,7 +8,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useUser } from "@/lib/hooks/use-users";
 import { useTimer, useStartTimer, usePauseTimer, useResumeTimer, useNextItem, useResetTimer, useEndTimer, useAddTime } from "@/lib/hooks/use-timer";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { outcomesApi, commentsApi, usersApi } from "@/lib/api";
+import { outcomesApi, commentsApi, usersApi, outcomeNotesApi } from "@/lib/api";
 import { AssigneePicker } from "@/components/assignee-picker";
 import { ScheduleEditor, DateEditor } from "@/components/schedule-editor";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -19,7 +19,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Play, Pause, SkipForward, RotateCcw, Timer as TimerIcon, CheckSquare, Plus, Trash2, Printer, Loader2, MessageSquare, Send, Share2 } from "lucide-react";
+import { ArrowLeft, Play, Pause, SkipForward, RotateCcw, Timer as TimerIcon, CheckSquare, Plus, Trash2, Printer, Loader2, MessageSquare, Send, Share2, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import type { PrimaryOutcome, ActionItem, Comment as CommentType } from "@/lib/types";
@@ -116,7 +116,32 @@ export default function MeetingDetailPage({
     onError: async (e) => toast.error(await getErrorMsg(e)),
   });
 
+  const outcomeId = existingOutcome?.id;
 
+  const { data: outcomeNotes } = useQuery({
+    queryKey: ["outcome-notes", outcomeId],
+    queryFn: () => outcomeNotesApi.list(outcomeId!),
+    enabled: !!outcomeId,
+  });
+
+  const [outcomeNoteText, setOutcomeNoteText] = useState("");
+
+  const addOutcomeNoteMutation = useMutation({
+    mutationFn: (text: string) =>
+      outcomeNotesApi.create({
+        meeting_id: id,
+        outcome_id: outcomeId!,
+        text,
+        sort_order: (outcomeNotes?.length ?? 0),
+        source: "manual",
+      }),
+    onSuccess: () => {
+      setOutcomeNoteText("");
+      qc.invalidateQueries({ queryKey: ["outcome-notes", outcomeId] });
+      toast.success("Note added");
+    },
+    onError: async (e) => toast.error(await getErrorMsg(e)),
+  });
 
   useEffect(() => {
     if (existingOutcome) {
@@ -542,6 +567,54 @@ export default function MeetingDetailPage({
                 </CardContent>
               </Card>
 
+              {/* Outcome Notes Section */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle>Outcome Notes</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {outcomeNotes && outcomeNotes.length > 0 ? (
+                    outcomeNotes.map((n, i) => (
+                      <div key={n.id ?? i} className="flex gap-3 p-3 rounded-lg bg-accent/30">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm whitespace-pre-wrap">{n.text}</p>
+                          <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+                            {n.created_by_user?.name && <span>{n.created_by_user.name}</span>}
+                            <span>{format(new Date(n.created_at), "MMM d, h:mm a")}</span>
+                            {n.source === "comment" && <Badge variant="outline" className="text-[10px] px-1.5 py-0">From comment</Badge>}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No outcome notes yet</p>
+                  )}
+
+                  {isAdmin && meeting.status !== "logged" && (
+                    <div className="flex gap-2">
+                      <Input
+                        value={outcomeNoteText}
+                        onChange={(e) => setOutcomeNoteText(e.target.value)}
+                        placeholder="Add a note..."
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey && outcomeNoteText.trim() && outcomeId) {
+                            e.preventDefault();
+                            addOutcomeNoteMutation.mutate(outcomeNoteText.trim());
+                          }
+                        }}
+                      />
+                      <Button
+                        size="icon"
+                        onClick={() => outcomeNoteText.trim() && outcomeId && addOutcomeNoteMutation.mutate(outcomeNoteText.trim())}
+                        disabled={!outcomeNoteText.trim() || !outcomeId || addOutcomeNoteMutation.isPending}
+                      >
+                        {addOutcomeNoteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               {isAdmin && (
                 <Button
                   className="w-full"
@@ -642,6 +715,13 @@ export default function MeetingDetailPage({
               </div>
             </CardContent>
           </Card>
+
+          {meeting.logged_at && (
+            <Link href={`/meetings/${id}/report`} className={buttonVariants({ variant: "default", className: "w-full" })}>
+              <FileText className="mr-2 h-4 w-4" />
+              View Report
+            </Link>
+          )}
 
           <Button
             className="w-full"

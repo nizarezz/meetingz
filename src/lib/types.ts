@@ -92,6 +92,16 @@ export interface Outcome {
   created_at?: string;
 }
 
+export interface ReportSnapshot {
+  outcomes: Array<{ id: string; primary_outcome: string; notes?: string; created_at: string }>;
+  notes: Array<{ text: string; sort_order: number; source: string; created_at: string; created_by_user?: { name: string } }>;
+  action_items: Array<{ id: string; text: string; status: string; priority: string; assignee_id?: string; assignee_email?: string; due_date?: string; created_at: string }>;
+  pulled_comments: Array<{ id: string; user_id: string; text: string; created_at: string; users?: { name: string } }>;
+  comment_thread: Array<{ id: string; user_id: string; text: string; created_at: string; users?: { name: string } }>;
+  logged_at: string;
+  logged_by: string;
+}
+
 export interface Meeting {
   id: string;
   title: string;
@@ -119,6 +129,9 @@ export interface Meeting {
   outcomes?: Outcome | Outcome[];
   share_token?: string;
   deleted_at?: string | null;
+  logged_at?: string | null;
+  logged_by?: string | null;
+  report_snapshot?: ReportSnapshot | null;
 }
 
 export interface TimerState {

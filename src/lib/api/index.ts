@@ -7,6 +7,7 @@ export { teamsApi, departmentsApi, setupApi } from "./teams";
 export { templatesApi } from "./templates";
 export { participantsApi } from "./participants";
 export { actionItemsApi } from "./action-items";
+export { outcomeNotesApi } from "./outcome-notes";
 export { commentsApi } from "./comments";
 export { notificationsApi } from "./notifications";
 
