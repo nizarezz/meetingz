@@ -257,6 +257,100 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      // --- Log action: freeze meeting, build snapshot, queue digest emails ---
+      if (parsed.status === "logged") {
+        const svc = serviceClient();
+
+        const [outcomesRes, notesRes, actionItemsRes, commentsRes] = await Promise.all([
+          svc.from("outcomes").select("id, primary_outcome, notes, created_at").eq("meeting_id", id),
+          svc.from("outcome_notes").select("text, sort_order, source, created_at, created_by_user:users!created_by(name)").eq("meeting_id", id).order("sort_order", { ascending: true }),
+          svc.from("action_items").select("id, text, status, priority, assignee_id, assignee_email, due_date, created_at, meetings!inner(title)").eq("meeting_id", id),
+          svc.from("comments").select("id, user_id, text, created_at, users!inner(name), pulled_to_outcome").eq("meeting_id", id).order("created_at", { ascending: true }),
+        ]);
+
+        const report_snapshot = {
+          outcomes: outcomesRes.data ?? [],
+          notes: notesRes.data ?? [],
+          action_items: (actionItemsRes.data ?? []).map((ai: Record<string, unknown>) => {
+            const { meetings, ...rest } = ai as { meetings: { title: string }; [key: string]: unknown };
+            return rest;
+          }),
+          pulled_comments: (commentsRes.data ?? []).filter((c: { pulled_to_outcome?: boolean }) => c.pulled_to_outcome),
+          comment_thread: (commentsRes.data ?? []).map((c: { pulled_to_outcome?: boolean; users?: { name: string }; [key: string]: unknown }) => {
+            const { pulled_to_outcome, ...rest } = c;
+            return rest;
+          }),
+          logged_at: new Date().toISOString(),
+          logged_by: caller.id,
+        };
+
+        const { data: loggedMeeting, error: logErr } = await svc
+          .from("meetings")
+          .update({
+            status: "logged",
+            logged_at: new Date().toISOString(),
+            logged_by: caller.id,
+            report_snapshot,
+          })
+          .eq("id", id)
+          .is("deleted_at", null)
+          .select()
+          .single();
+
+        if (logErr) return err(logErr.message);
+
+        await audit(caller.id, caller.team_id, "meeting_log", "meeting", id, {
+          title: loggedMeeting.title,
+        });
+
+        // Queue assignment digest emails — one per unique assignee
+        try {
+          const assignees = new Map<string, { email: string; name: string }>();
+          for (const ai of (actionItemsRes.data ?? []) as Array<{ assignee_email?: string; assignee_id?: string; text: string }>) {
+            let email = ai.assignee_email;
+            let name = email ?? "Assignee";
+            if (ai.assignee_id && !email) {
+              const { data: u } = await svc.from("users").select("email, name").eq("id", ai.assignee_id).single();
+              if (u) { email = u.email; name = u.name; }
+            }
+            if (email && !assignees.has(email)) {
+              assignees.set(email, { email, name });
+            }
+          }
+
+          const baseUrl = Deno.env.get("APP_URL") ?? "http://localhost:3000";
+          const digestJobs = Array.from(assignees.values()).map((a) => ({
+            type: "send-email",
+            payload: {
+              to: a.email,
+              template: "assignment-digest",
+              subject: `Assignment summary: ${loggedMeeting.title}`,
+              data: JSON.stringify({
+                name: a.name,
+                title: loggedMeeting.title,
+                meetingUrl: `${baseUrl}/meetings/${id}`,
+              }),
+            },
+            status: "pending",
+          }));
+
+          if (digestJobs.length > 0) {
+            const { error: queueErr } = await svc.from("job_queue").insert(digestJobs);
+            if (queueErr) console.error("Failed to queue assignment digest emails:", queueErr.message);
+          }
+        } catch (e) {
+          console.error("Assignment digest queue error:", e);
+        }
+
+        const { data: agendaItems } = await caller.client
+          .from("agenda_items")
+          .select("title, duration, assignee_email, presenter, notes")
+          .eq("meeting_id", id)
+          .order("sort_order", { ascending: true });
+
+        return ok({ ...loggedMeeting, agenda_items: agendaItems ?? [] });
+      }
+
       const safe = Object.fromEntries(
         Object.entries(parsed).filter(
           ([k]) => !["timer_started_at","timer_base_total","timer_base_item",
