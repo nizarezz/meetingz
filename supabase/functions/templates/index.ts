@@ -2,6 +2,7 @@ import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { parse, createTemplateSchema } from "../_shared/validate.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -63,12 +64,9 @@ Deno.serve(async (req: Request) => {
       requireRole(caller, ADMIN_ROLES);
       checkRateLimit(`templates:create:${caller.team_id}`, 30, "template creates");
 
-      const body = await req.json();
-      const { name, description, department, meeting_type, agenda_items = [] } = body;
-
-      if (!name || !department || !meeting_type) {
-        return err("name, department, and meeting_type are required");
-      }
+      const body = await req.json().catch(() => ({}));
+      const parsed = parse(createTemplateSchema, body);
+      const { name, description, department, meeting_type, agenda_items } = parsed;
 
       const { data, error } = await svc
         .from("templates")

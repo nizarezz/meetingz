@@ -3,6 +3,7 @@ import { userClient, serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES } from "../_shared/auth.ts";
 import { sendNotificationEmail } from "../_shared/resend.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { parse, createOutcomeSchema } from "../_shared/validate.ts";
 
 async function resolveAssigneeEmail(
   svc: ReturnType<typeof serviceClient>,
@@ -91,8 +92,9 @@ Deno.serve(async (req: Request) => {
       requireRole(caller, ADMIN_ROLES);
       checkRateLimit(`outcomes:create:${caller.team_id}`, 30, "outcome creates");
 
-      const body = await req.json();
-      const { primary_outcome, action_items = [], notes } = body;
+      const body = await req.json().catch(() => ({}));
+      const parsed = parse(createOutcomeSchema, body);
+      const { primary_outcome, action_items = [], notes } = parsed;
 
       if (!primary_outcome) return err("primary_outcome is required");
       if (!VALID_OUTCOMES.includes(primary_outcome)) {

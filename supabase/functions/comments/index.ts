@@ -2,6 +2,7 @@ import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { parse, createCommentSchema } from "../_shared/validate.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -33,8 +34,9 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "POST") {
       checkRateLimit(`comments:create:${caller.team_id}`, 60, "comments");
-      const body = await req.json();
-      const { meeting_id, text } = body;
+      const body = await req.json().catch(() => ({}));
+      const parsed = parse(createCommentSchema, body);
+      const { meeting_id, text } = parsed;
 
       if (!meeting_id || !text?.trim()) return err("meeting_id and text are required");
 

@@ -3,6 +3,7 @@ import { userClient, serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { sendNotificationEmail } from "../_shared/resend.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { parse, createMeetingSchema, updateMeetingSchema } from "../_shared/validate.ts";
 
 const TRANSITIONS: Record<string, string[]> = {
   planned:   ["active"],
@@ -143,16 +144,13 @@ Deno.serve(async (req: Request) => {
       requireRole(caller, ADMIN_ROLES);
       checkRateLimit(`meetings:create:${caller.team_id}`, 30, "meeting creates");
 
-      const body = await req.json();
+      const body = await req.json().catch(() => ({}));
+      const parsed = parse(createMeetingSchema, body);
       const {
         title, department, meeting_type, vibe,
-        scheduled_duration, agenda_items = [],
-        scheduled_at, facilitator_id, participants = [],
-      } = body;
-
-      if (!title || !department || !meeting_type || !scheduled_duration) {
-        return err("title, department, meeting_type, and scheduled_duration are required");
-      }
+        scheduled_duration, agenda_items,
+        scheduled_at, facilitator_id, participants,
+      } = parsed;
 
       const svc = serviceClient();
 
@@ -224,9 +222,10 @@ Deno.serve(async (req: Request) => {
     if (req.method === "PATCH" && id) {
       requireRole(caller, ADMIN_ROLES);
       checkRateLimit(`meetings:update:${caller.team_id}`, 30, "meeting updates");
-      const body = await req.json();
+      const body = await req.json().catch(() => ({}));
+      const parsed = parse(updateMeetingSchema, body);
 
-      if (body.status) {
+      if (parsed.status) {
         const { data: current, error: fetchErr } = await userClient(req)
           .from("meetings")
           .select("status")
@@ -236,16 +235,16 @@ Deno.serve(async (req: Request) => {
         if (fetchErr || !current) return err("Meeting not found", 404);
 
         const allowed = TRANSITIONS[current.status] ?? [];
-        if (!allowed.includes(body.status)) {
+        if (!allowed.includes(parsed.status)) {
           return err(
-            `Cannot transition from '${current.status}' to '${body.status}'. ` +
+            `Cannot transition from '${current.status}' to '${parsed.status}'. ` +
             `Allowed next states: [${allowed.join(", ") || "none"}]`
           );
         }
       }
 
       const safe = Object.fromEntries(
-        Object.entries(body).filter(
+        Object.entries(parsed).filter(
           ([k]) => !["timer_started_at","timer_base_total","timer_base_item",
                         "timer_item_started_at","is_timer_running","paused_at",
                         "agenda_items","team_id","created_by"].includes(k)
@@ -262,15 +261,15 @@ Deno.serve(async (req: Request) => {
 
       if (error) return err(error.message);
 
-      if (body.agenda_items) {
+      if (parsed.agenda_items) {
         const svc = serviceClient();
         await svc.from("agenda_items").delete().eq("meeting_id", id);
 
-        const rows = body.agenda_items.map((item: Record<string, unknown>, i: number) => ({
+        const rows = parsed.agenda_items.map((item, i) => ({
           meeting_id: id,
           sort_order: i,
           title: item.title,
-          duration: item.duration ?? 0,
+          duration: item.duration,
           assignee_email: item.assignee_email ?? null,
           presenter: item.presenter ?? null,
           notes: item.notes ?? null,
@@ -290,7 +289,7 @@ Deno.serve(async (req: Request) => {
         .eq("meeting_id", id)
         .order("sort_order", { ascending: true });
 
-      if (body.status === "completed") {
+      if (parsed.status === "completed") {
         try {
           const { data: participants } = await userClient(req)
             .from("meeting_participants")
