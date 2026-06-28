@@ -126,7 +126,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "POST" && id === "invite") {
       requireRole(caller, ADMIN_ROLES);
-      checkRateLimit(caller.team_id);
+      checkRateLimit(`invite:${caller.team_id}`, 10, "invites");
 
       const body = await req.json();
       const { email, name, department, role = "member" } = body;

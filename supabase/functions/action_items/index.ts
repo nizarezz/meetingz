@@ -1,6 +1,7 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, ADMIN_ROLES } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -34,6 +35,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "PATCH" && parts.length === 1) {
+      checkRateLimit(`action_items:update:${caller.team_id}`, 60, "action item updates");
       const itemId = parts[0];
       const body = await req.json();
 

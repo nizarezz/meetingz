@@ -1,6 +1,7 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -24,6 +25,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "POST") {
+      checkRateLimit(`comments:create:${caller.team_id}`, 60, "comments");
       const body = await req.json();
       const { meeting_id, text } = body;
 

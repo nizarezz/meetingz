@@ -1,6 +1,7 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { userClient, serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 const TIMER_ROLES = ADMIN_ROLES;
 
@@ -55,6 +56,7 @@ Deno.serve(async (req: Request) => {
     if (req.method !== "POST") return err("Method not allowed", 405);
 
     requireRole(caller, TIMER_ROLES);
+    checkRateLimit(`timer:actions:${caller.team_id}`, 120, "timer actions");
 
     const now = new Date().toISOString();
 

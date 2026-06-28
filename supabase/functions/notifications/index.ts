@@ -1,6 +1,7 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -29,6 +30,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "PATCH" && parts[0] === "preferences") {
+      checkRateLimit(`notifications:update:${caller.team_id}`, 30, "notification preference updates");
       const body = await req.json();
       const allowed = [
         "meeting_reminder_email",

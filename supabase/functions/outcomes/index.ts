@@ -2,6 +2,7 @@ import { ok, err, preflight } from "../_shared/cors.ts";
 import { userClient, serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES } from "../_shared/auth.ts";
 import { sendNotificationEmail } from "../_shared/resend.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 async function resolveAssigneeEmail(
   svc: ReturnType<typeof serviceClient>,
@@ -88,6 +89,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "POST") {
       requireRole(caller, ADMIN_ROLES);
+      checkRateLimit(`outcomes:create:${caller.team_id}`, 30, "outcome creates");
 
       const body = await req.json();
       const { primary_outcome, action_items = [], notes } = body;
@@ -167,6 +169,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "PATCH") {
       requireRole(caller, ADMIN_ROLES);
+      checkRateLimit(`outcomes:update:${caller.team_id}`, 30, "outcome updates");
       const body = await req.json();
       const { primary_outcome, action_items, notes } = body;
       const svc = serviceClient();

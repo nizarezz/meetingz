@@ -1,9 +1,12 @@
 const store = new Map<string, number[]>();
 
 const WINDOW_MS = 60 * 60 * 1000;
-const MAX_INVITES = 10;
 
-export function checkRateLimit(key: string): void {
+export function checkRateLimit(
+  key: string,
+  maxRequests: number = 10,
+  label: string = "requests",
+): void {
   const now = Date.now();
   const windowStart = now - WINDOW_MS;
 
@@ -15,9 +18,9 @@ export function checkRateLimit(key: string): void {
 
   const recent = timestamps.filter((t) => t > windowStart);
 
-  if (recent.length >= MAX_INVITES) {
+  if (recent.length >= maxRequests) {
     throw new Response(
-      JSON.stringify({ error: "Too many invites. Try again later." }),
+      JSON.stringify({ error: `Too many ${label}. Try again later.` }),
       { status: 429, headers: { "Content-Type": "application/json" } },
     );
   }

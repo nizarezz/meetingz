@@ -2,6 +2,7 @@ import { ok, err, preflight } from "../_shared/cors.ts";
 import { userClient, serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { sendNotificationEmail } from "../_shared/resend.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 const TRANSITIONS: Record<string, string[]> = {
   planned:   ["active"],
@@ -130,6 +131,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "POST") {
       requireRole(caller, ADMIN_ROLES);
+      checkRateLimit(`meetings:create:${caller.team_id}`, 30, "meeting creates");
 
       const body = await req.json();
       const {
@@ -187,6 +189,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "PATCH" && id) {
       requireRole(caller, ADMIN_ROLES);
+      checkRateLimit(`meetings:update:${caller.team_id}`, 30, "meeting updates");
       const body = await req.json();
 
       if (body.status) {
@@ -269,6 +272,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "DELETE" && id) {
       requireRole(caller, SUPER_ADMIN_ROLES);
+      checkRateLimit(`meetings:delete:${caller.team_id}`, 10, "meeting deletions");
 
       const { error } = await serviceClient()
         .from("meetings")

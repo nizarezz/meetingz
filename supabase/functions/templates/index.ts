@@ -1,6 +1,7 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -53,6 +54,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "POST") {
       requireRole(caller, ADMIN_ROLES);
+      checkRateLimit(`templates:create:${caller.team_id}`, 30, "template creates");
 
       const body = await req.json();
       const { name, description, department, meeting_type, agenda_items = [] } = body;
@@ -81,6 +83,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "PATCH" && id) {
       requireRole(caller, ADMIN_ROLES);
+      checkRateLimit(`templates:update:${caller.team_id}`, 30, "template updates");
       const body = await req.json();
       const allowed = ["name", "description", "department", "meeting_type", "agenda_items"];
       const patch: Record<string, unknown> = {};
@@ -106,6 +109,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "DELETE" && id) {
       requireRole(caller, SUPER_ADMIN_ROLES);
+      checkRateLimit(`templates:delete:${caller.team_id}`, 10, "template deletions");
 
       const { error } = await svc
         .from("templates")

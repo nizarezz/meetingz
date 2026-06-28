@@ -1,6 +1,7 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 const VALID_ROLES = ["organizer", "presenter", "attendee"];
 
@@ -35,6 +36,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "POST") {
       requireRole(caller, ADMIN_ROLES);
+      checkRateLimit(`participants:create:${caller.team_id}`, 30, "participant adds");
 
       const body = await req.json();
       const { meeting_id, user_id, role = "attendee", department } = body;
@@ -89,6 +91,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "PATCH" && id) {
       requireRole(caller, ADMIN_ROLES);
+      checkRateLimit(`participants:update:${caller.team_id}`, 30, "participant updates");
 
       const body = await req.json();
       if (!body.role) return err("role is required");
@@ -113,6 +116,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "DELETE" && id) {
       requireRole(caller, ADMIN_ROLES);
+      checkRateLimit(`participants:delete:${caller.team_id}`, 30, "participant removals");
 
       const { error } = await svc
         .from("meeting_participants")

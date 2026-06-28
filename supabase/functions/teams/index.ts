@@ -1,6 +1,7 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -24,6 +25,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "PATCH") {
       requireRole(caller, SUPER_ADMIN_ROLES);
+      checkRateLimit(`teams:update:${caller.team_id}`, 10, "team updates");
 
       const body = await req.json();
       if (!body.name) return err("name is required");
