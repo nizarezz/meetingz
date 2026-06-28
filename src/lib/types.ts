@@ -63,9 +63,12 @@ export interface Participant {
 }
 
 export interface ActionItem {
-  task: string;
-  assignee?: string;
-  due?: string;
+  id?: string;
+  meeting_id?: string;
+  text: string;
+  assignee_email?: string;
+  assignee_id?: string;
+  due_date?: string;
   done?: boolean;
 }
 
@@ -186,6 +189,7 @@ export interface PaginatedResponse<T> {
   total: number;
   page: number;
   per_page: number;
+  total_pages: number;
 }
 
 export interface Department {

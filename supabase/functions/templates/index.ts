@@ -16,10 +16,14 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET" && !id) {
       const department  = url.searchParams.get("department");
       const meetingType = url.searchParams.get("meeting_type");
+      const page        = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
+      const perPage     = Math.max(1, Math.min(100, parseInt(url.searchParams.get("per_page") ?? "50", 10)));
+      const from        = (page - 1) * perPage;
+      const to          = from + perPage - 1;
 
       let query = svc
         .from("templates")
-        .select("id, name, description, department, meeting_type, agenda_items, created_by, created_at")
+        .select("id, name, description, department, meeting_type, agenda_items, created_by, created_at", { count: "exact" })
         .eq("team_id", caller.team_id)
         .is("deleted_at", null)
         .order("created_at", { ascending: false });
@@ -27,9 +31,11 @@ Deno.serve(async (req: Request) => {
       if (department)  query = query.eq("department", department);
       if (meetingType) query = query.eq("meeting_type", meetingType);
 
-      const { data, error } = await query;
+      query = query.range(from, to);
+      const { data, error, count } = await query;
       if (error) return err(error.message);
-      return ok(data);
+      const total = count ?? 0;
+      return ok({ data, page, per_page: perPage, total, total_pages: Math.ceil(total / perPage) });
     }
 
     if (req.method === "GET" && id) {

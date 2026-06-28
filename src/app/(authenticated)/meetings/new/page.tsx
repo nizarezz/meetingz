@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Loader2, X, Plus, GripVertical, Timer, Search as SearchIcon, Info, Calendar, Clock, Users, Mail, ListChecks } from "lucide-react";
 import type { AgendaItem } from "@/lib/types";
+import { ScheduleCreateEditor } from "@/components/schedule-editor";
 
 const meetingSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -60,6 +61,7 @@ export default function NewMeetingPage() {
     handleSubmit,
     control,
     setValue,
+    watch,
     formState: { errors },
   } = useForm<MeetingFormData>({
     resolver: zodResolver(meetingSchema),
@@ -149,10 +151,50 @@ export default function NewMeetingPage() {
     setGuestEmail("");
   }
 
+  const now = useMemo(() => new Date(), []);
+  const todayStr = useMemo(() => now.toISOString().slice(0, 10), [now]);
+  const nowTimeStr = useMemo(() => now.toTimeString().slice(0, 5), [now]);
+
+  const selectedDate = watch("date");
+  const timeMin = selectedDate === todayStr ? nowTimeStr : undefined;
+
   const totalMinutes = useMemo(
     () => Math.round(agendaItems.reduce((s, a) => s + a.duration, 0) / 60),
     [agendaItems],
   );
+
+  function saveAsDraft(data: MeetingFormData) {
+    const cleanAgenda = agendaItems.filter((a) => a.title.trim());
+    if (cleanAgenda.length === 0) {
+      toast.error("At least one agenda item is required");
+      return;
+    }
+
+    const scheduledDuration = data.duration
+      ? parseInt(data.duration, 10) * 60
+      : cleanAgenda.reduce((sum, a) => sum + a.duration, 0);
+
+    createMeeting.mutate(
+      {
+        title: data.title.trim(),
+        description: data.description?.trim() || undefined,
+        department: data.department ?? "",
+        meeting_type: data.meetingType ?? "",
+        scheduled_duration: scheduledDuration,
+        agenda_items: cleanAgenda,
+        participants: participantIds.map((userId) => ({ user_id: userId, role: "attendee" as const })),
+      },
+      {
+        onSuccess: (meeting) => {
+          toast.success("Draft saved");
+          router.push(`/meetings/${meeting.id}`);
+        },
+        onError: (err) => {
+          toast.error(err.message);
+        },
+      },
+    );
+  }
 
   function onSubmit(data: MeetingFormData) {
     const cleanAgenda = agendaItems.filter((a) => a.title.trim());
@@ -166,6 +208,10 @@ export default function NewMeetingPage() {
       scheduledAt = data.time
         ? new Date(`${data.date}T${data.time}`).toISOString()
         : new Date(`${data.date}T09:00`).toISOString();
+      if (new Date(scheduledAt) <= now) {
+        toast.error("Meeting must be scheduled in the future");
+        return;
+      }
     }
 
     const scheduledDuration = data.duration
@@ -206,7 +252,8 @@ export default function NewMeetingPage() {
           <p className="text-muted-foreground mt-1">Plan and structure your upcoming session.</p>
         </div>
         <div className="flex gap-4">
-          <Button variant="outline" className="rounded-xl border-outline-variant font-semibold" disabled={isSubmitting}>
+          <Button variant="outline" className="rounded-xl border-outline-variant font-semibold" disabled={isSubmitting} onClick={handleSubmit(saveAsDraft)}>
+            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save as Draft
           </Button>
           <Button
@@ -271,52 +318,20 @@ export default function NewMeetingPage() {
                   className="w-full bg-surface-container-low border border-outline-variant/50 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary text-foreground placeholder:text-muted-foreground/50 transition-shadow resize-none"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="date" className="text-sm font-bold text-muted-foreground">Date</Label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="date"
-                    type="date"
-                    {...register("date")}
-                    className="bg-surface-container-low border-outline-variant/50 rounded-lg pl-10 pr-4 py-3 focus:ring-2 focus:ring-primary/50"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="time" className="text-sm font-bold text-muted-foreground">Time</Label>
-                  <div className="relative">
-                    <Clock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="time"
-                      type="time"
-                      {...register("time")}
-                      className="bg-surface-container-low border-outline-variant/50 rounded-lg pl-10 pr-4 py-3 focus:ring-2 focus:ring-primary/50"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="duration" className="text-sm font-bold text-muted-foreground">Duration</Label>
-                  <Controller
-                    name="duration"
-                    control={control}
-                    render={({ field }) => (
-                      <Select value={field.value ?? "60"} onValueChange={(v) => field.onChange(v)}>
-                        <SelectTrigger id="duration" className="bg-surface-container-low border-outline-variant/50 rounded-lg py-3">
-                          <SelectValue placeholder="Select duration" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {DURATION_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                </div>
+              <div className="md:col-span-2 bg-surface rounded-xl p-4 border border-outline-variant/20 space-y-3">
+                <Label className="text-sm font-bold text-muted-foreground">Schedule</Label>
+                <ScheduleCreateEditor
+                  date={watch("date")}
+                  time={watch("time")}
+                  duration={watch("duration")}
+                  todayStr={todayStr}
+                  timeMin={timeMin}
+                  onSave={(d, t, dur) => {
+                    setValue("date", d);
+                    setValue("time", t);
+                    setValue("duration", dur);
+                  }}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="dept" className="text-sm font-bold text-muted-foreground">Department</Label>

@@ -2,6 +2,7 @@ import { ok, err, preflight } from "../_shared/cors.ts";
 import { userClient, serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { sendNotificationEmail } from "../_shared/resend.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -18,11 +19,12 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET" && !id) {
       const department = url.searchParams.get("department");
       const role       = url.searchParams.get("role");
-      const hasPage    = url.searchParams.has("page") || url.searchParams.has("per_page");
-      const page       = parseInt(url.searchParams.get("page") ?? "1", 10);
-      const perPage    = parseInt(url.searchParams.get("per_page") ?? "1000", 10);
+      const page       = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
+      const perPage    = Math.max(1, Math.min(100, parseInt(url.searchParams.get("per_page") ?? "50", 10)));
       const from       = (page - 1) * perPage;
       const to         = from + perPage - 1;
+
+      const search = url.searchParams.get("search");
 
       let query = svc
         .from("users")
@@ -33,11 +35,13 @@ Deno.serve(async (req: Request) => {
       if (caller.team_id) query = query.eq("team_id", caller.team_id);
       if (department) query = query.eq("department", department);
       if (role)       query = query.eq("role", role);
+      if (search)     query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%`);
 
-      const queryFn = hasPage ? query.range(from, to) : query;
-      const { data, error, count } = await queryFn;
+      query = query.range(from, to);
+      const { data, error, count } = await query;
       if (error) return err(error.message);
-      return ok({ data, total: count ?? 0, page, per_page: perPage });
+      const total = count ?? 0;
+      return ok({ data, page, per_page: perPage, total, total_pages: Math.ceil(total / perPage) });
     }
 
     if (req.method === "GET" && id) {
@@ -122,6 +126,7 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "POST" && id === "invite") {
       requireRole(caller, ADMIN_ROLES);
+      checkRateLimit(caller.team_id);
 
       const body = await req.json();
       const { email, name, department, role = "member" } = body;

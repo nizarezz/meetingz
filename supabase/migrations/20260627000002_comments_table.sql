@@ -9,10 +9,20 @@ CREATE TABLE IF NOT EXISTS comments (
 
 ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Team members can read comments"
-  ON comments FOR SELECT
-  USING (team_id IN (SELECT team_id FROM users WHERE id = auth.uid()));
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'comments' AND policyname = 'Team members can read comments') THEN
+    CREATE POLICY "Team members can read comments"
+      ON comments FOR SELECT
+      USING (team_id IN (SELECT team_id FROM users WHERE id = auth.uid()));
+  END IF;
+END $$;
 
-CREATE POLICY "Team members can insert comments"
-  ON comments FOR INSERT
-  WITH CHECK (team_id IN (SELECT team_id FROM users WHERE id = auth.uid()));
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'comments' AND policyname = 'Team members can insert comments') THEN
+    CREATE POLICY "Team members can insert comments"
+      ON comments FOR INSERT
+      WITH CHECK (team_id IN (SELECT team_id FROM users WHERE id = auth.uid()));
+  END IF;
+END $$;

@@ -59,3 +59,25 @@ export function useResetTimer() {
     },
   });
 }
+
+export function useEndTimer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (meetingId: string) => timerApi.end(meetingId),
+    onSuccess: (_, meetingId) => {
+      qc.invalidateQueries({ queryKey: ["timer", meetingId] });
+      qc.invalidateQueries({ queryKey: ["meetings", meetingId] });
+    },
+  });
+}
+
+export function useAddTime() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ meetingId, seconds }: { meetingId: string; seconds: number }) =>
+      timerApi.addTime(meetingId, seconds),
+    onSuccess: (_, { meetingId }) => {
+      qc.invalidateQueries({ queryKey: ["timer", meetingId] });
+    },
+  });
+}

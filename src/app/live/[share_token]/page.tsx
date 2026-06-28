@@ -213,7 +213,16 @@ export default function LivePage({
     );
   }
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <div className="min-h-screen bg-background p-6 max-w-2xl mx-auto flex items-center justify-center">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          <span className="text-sm">Loading meeting...</span>
+        </div>
+      </div>
+    );
+  }
 
   if (data.state === "upcoming") return <UpcomingView data={data} />;
   if (data.state === "ended") return <EndedView data={data} />;

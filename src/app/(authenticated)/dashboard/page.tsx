@@ -19,7 +19,7 @@ import type { UserRole } from "@/lib/types";
 export default function DashboardPage() {
   const { user, role } = useAuth();
   const isAdmin = ADMIN_ROLES.includes(role as UserRole);
-  const { data: page, isLoading } = useMeetings();
+  const { data: page, isLoading, error } = useMeetings();
   const allMeetings = page?.data ?? [];
 
   useRealtimeInvalidation([
@@ -80,6 +80,14 @@ export default function DashboardPage() {
     { label: "Outcomes Logged", value: meetings.filter((m) => m.status === "logged").length, icon: TrendingUp, color: "text-violet-500" },
     { label: "Participants", value: new Set(meetings.flatMap((m) => m.participants?.map((p) => p.user_id) ?? [])).size, icon: Users, color: "text-amber-500" },
   ];
+
+  if (error) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <p className="text-sm text-destructive">Failed to load meetings</p>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

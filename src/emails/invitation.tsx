@@ -22,7 +22,7 @@ export default function InvitationEmail({ name, teamName, appUrl, email, passwor
 
           <Text style={{ fontSize: "16px", margin: "0 0 16px" }}>Hi {name},</Text>
           <Text style={{ fontSize: "14px", lineHeight: "1.6", margin: "0 0 16px" }}>
-            You've been invited to join <strong>{teamName}</strong> on Terra Meetings.
+            You`&apos;`ve been invited to join <strong>{teamName}</strong> on Terra Meetings.
           </Text>
 
           <Section style={{ background: "#f0ece4", borderRadius: "0.75rem", padding: "20px", margin: "24px 0" }}>
@@ -51,7 +51,7 @@ export default function InvitationEmail({ name, teamName, appUrl, email, passwor
             Please change your password after signing in. This password expires after first login.
           </Text>
           <Text style={{ fontSize: "12px", color: "#74796e", margin: "0" }}>
-            If you weren't expecting this invitation, you can ignore this email.
+            If you weren`&apos;`t expecting this invitation, you can ignore this email.
           </Text>
         </Container>
       </Body>

@@ -84,6 +84,8 @@ export const timerApi = {
   resume: (id: string) => api().post(`timer/${id}/resume`).json<TimerState>(),
   next: (id: string) => api().post(`timer/${id}/next-item`).json<TimerState>(),
   reset: (id: string) => api().post(`timer/${id}/reset`).json<TimerState>(),
+  end: (id: string) => api().post(`timer/${id}/end`).json<TimerState>(),
+  addTime: (id: string, seconds: number) => api().post(`timer/${id}/add-time`, { json: { seconds } }).json<TimerState>(),
 };
 
 // ---------- Outcomes ----------
@@ -101,12 +103,13 @@ export const outcomesApi = {
 
 // ---------- Users ----------
 export const usersApi = {
-  list: (params?: { department?: string; role?: UserRole; page?: number; perPage?: number }) => {
+  list: (params?: { department?: string; role?: UserRole; page?: number; perPage?: number; search?: string }) => {
     const searchParams = new URLSearchParams();
     if (params?.department) searchParams.set("department", params.department);
     if (params?.role) searchParams.set("role", params.role);
     if (params?.page) searchParams.set("page", String(params.page));
     if (params?.perPage) searchParams.set("per_page", String(params.perPage));
+    if (params?.search) searchParams.set("search", params.search);
     return api()
       .get("users", { searchParams })
       .json<PaginatedResponse<ApiUser>>();
@@ -128,13 +131,15 @@ export const teamsApi = {
 
 // ---------- Templates ----------
 export const templatesApi = {
-  list: (params?: { department?: string; meeting_type?: string }) => {
+  list: (params?: { department?: string; meeting_type?: string; page?: number; perPage?: number }) => {
     const searchParams = new URLSearchParams();
     if (params?.department) searchParams.set("department", params.department);
     if (params?.meeting_type) searchParams.set("meeting_type", params.meeting_type);
+    if (params?.page) searchParams.set("page", String(params.page));
+    if (params?.perPage) searchParams.set("per_page", String(params.perPage));
     return api()
       .get("templates", { searchParams })
-      .json<Template[]>();
+      .json<PaginatedResponse<Template>>();
   },
   get: (id: string) => api().get(`templates/${id}`).json<Template>(),
   create: (input: Omit<Template, "id" | "created_at">) =>
@@ -155,6 +160,20 @@ export const participantsApi = {
   update: (id: string, patch: { role: ParticipantRole }) =>
     api().patch(`participants/${id}`, { json: patch }).json<Participant>(),
   remove: (id: string) => api().delete(`participants/${id}`).json<{ deleted: true }>(),
+};
+
+// ---------- Action Items ----------
+export const actionItemsApi = {
+  list: (params?: { assignee_email?: string; assignee_id?: string }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.assignee_id) searchParams.set("assignee_id", params.assignee_id);
+    if (params?.assignee_email) searchParams.set("assignee_email", params.assignee_email);
+    return api()
+      .get("action_items", { searchParams })
+      .json<(ActionItem & { meetings: { title: string; scheduled_at: string | null } })[]>();
+  },
+  update: (id: string, patch: Partial<Pick<ActionItem, "done">>) =>
+    api().patch(`action_items/${id}`, { json: patch }).json<ActionItem & { meetings: { title: string; scheduled_at: string | null } }>(),
 };
 
 // ---------- Comments ----------

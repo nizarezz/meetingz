@@ -1,14 +1,17 @@
 "use client";
 
-import { use, useState, useEffect, useRef, useCallback } from "react";
+import { use, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMeeting, useUpdateMeeting, useDeleteMeeting } from "@/lib/hooks/use-meetings";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useUser } from "@/lib/hooks/use-users";
-import { useTimer, useStartTimer, usePauseTimer, useResumeTimer, useNextItem, useResetTimer } from "@/lib/hooks/use-timer";
+import { useTimer, useStartTimer, usePauseTimer, useResumeTimer, useNextItem, useResetTimer, useEndTimer, useAddTime } from "@/lib/hooks/use-timer";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { outcomesApi, commentsApi } from "@/lib/api";
+import { outcomesApi, commentsApi, usersApi } from "@/lib/api";
+import { AssigneePicker } from "@/components/assignee-picker";
+import { ScheduleEditor, DateEditor } from "@/components/schedule-editor";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useRealtimeInvalidation } from "@/lib/hooks/use-realtime";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +44,8 @@ export default function MeetingDetailPage({
   const resumeTimer = useResumeTimer();
   const nextItem = useNextItem();
   const resetTimer = useResetTimer();
+  const endTimer = useEndTimer();
+  const addTime = useAddTime();
   const { user, role } = useAuth();
   const isAdmin = ADMIN_ROLES.includes(role as UserRole);
   const { data: currentUser } = useUser(user?.id ?? "");
@@ -85,10 +90,11 @@ export default function MeetingDetailPage({
   });
 
   const [primaryOutcome, setPrimaryOutcome] = useState<PrimaryOutcome>("Decision Made");
-  const [actionItems, setActionItems] = useState<ActionItem[]>([{ task: "", assignee: "", due: "" }]);
+  const [actionItems, setActionItems] = useState<ActionItem[]>([{ text: "", assignee_email: "", due_date: "" }]);
   const [notes, setNotes] = useState("");
   useRealtimeInvalidation([
     { channel: "meeting-detail-meeting", table: "meetings", events: ["UPDATE"], filter: `id=eq.${id}`, queryKeys: [["meetings", id], ["timer", id], ["meetings"]] },
+    { channel: "meeting-detail-timer", table: "meeting_timer_state", events: ["*"], filter: `meeting_id=eq.${id}`, queryKeys: [["timer", id]] },
     { channel: "meeting-detail-outcomes", table: "outcomes", events: ["UPDATE"], filter: `meeting_id=eq.${id}`, queryKeys: [["outcomes", id], ["outcomes"]] },
     { channel: "meeting-detail-comments", table: "comments", events: ["INSERT"], filter: `meeting_id=eq.${id}`, queryKeys: [["comments", id]] },
   ]);
@@ -116,7 +122,7 @@ export default function MeetingDetailPage({
     if (existingOutcome) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setPrimaryOutcome((existingOutcome.primary_outcome as PrimaryOutcome) ?? "Decision Made");
-      setActionItems(existingOutcome.action_items?.length ? existingOutcome.action_items : [{ task: "", assignee: "", due: "" }]);
+      setActionItems(existingOutcome.action_items?.length ? existingOutcome.action_items : [{ text: "", assignee_email: "", due_date: "" }]);
       setNotes(existingOutcome.notes ?? "");
     }
   }, [existingOutcome]);
@@ -125,7 +131,7 @@ export default function MeetingDetailPage({
     mutationFn: () => {
       const body = {
         primary_outcome: primaryOutcome as PrimaryOutcome,
-        action_items: actionItems.filter((a) => a.task.trim()),
+        action_items: actionItems.filter((a) => a.text.trim()),
         notes,
       };
       if (existingOutcome) return outcomesApi.update(id, body);
@@ -140,7 +146,7 @@ export default function MeetingDetailPage({
   });
 
   function addActionItem() {
-    setActionItems((prev) => [...prev, { task: "", assignee: "", due: "" }]);
+    setActionItems((prev) => [...prev, { text: "", assignee_email: "", due_date: "" }]);
   }
   function removeActionItem(index: number) {
     setActionItems((prev) => prev.filter((_, i) => i !== index));
@@ -149,6 +155,22 @@ export default function MeetingDetailPage({
     setActionItems((prev) =>
       prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
     );
+  }
+
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviteIndex, setInviteIndex] = useState(-1);
+  const [inviteOpen, setInviteOpen] = useState(false);
+
+  const inviteMutation = useMutation({
+    mutationFn: ({ email, name }: { email: string; name?: string }) =>
+      usersApi.invite({ email, name, role: "member" }),
+  });
+
+  function handleInvite(email: string, name?: string) {
+    setInviteEmail(email);
+    setInviteName(name ?? email.split("@")[0]);
+    setInviteOpen(true);
   }
 
   if (isLoading) {
@@ -272,33 +294,29 @@ export default function MeetingDetailPage({
 
                 {isAdmin && (
                   <div className="flex justify-center gap-3">
-                    {!timer.is_running ? (
-                      <Button
-                        size="lg"
-                        className="h-14 w-14 rounded-full"
-                        onClick={() => {
+                    {/* Start / Pause toggle */}
+                    <Button
+                      size="lg"
+                      className={`h-14 w-14 rounded-full ${timer.is_running ? "bg-amber-500 hover:bg-amber-600" : ""}`}
+                      onClick={() => {
+                        if (timer.is_running) {
+                          pauseTimer.mutate(id, { onError: async (e) => toast.error(await getErrorMsg(e)) });
+                        } else {
                           const fn = timer.paused_at ? resumeTimer.mutate : startTimer.mutate;
                           fn(id, { onError: async (e) => toast.error(await getErrorMsg(e)) });
-                        }}
-                        disabled={startTimer.isPending || resumeTimer.isPending}
-                      >
-                        {(startTimer.isPending || resumeTimer.isPending)
-                          ? <Loader2 className="h-6 w-6 animate-spin" />
+                        }
+                      }}
+                      disabled={startTimer.isPending || pauseTimer.isPending || resumeTimer.isPending}
+                    >
+                      {(startTimer.isPending || pauseTimer.isPending || resumeTimer.isPending)
+                        ? <Loader2 className="h-6 w-6 animate-spin" />
+                        : timer.is_running
+                          ? <Pause className="h-6 w-6" />
                           : <Play className="h-6 w-6 fill-current" />}
-                      </Button>
-                    ) : (
-                      <Button
-                        size="lg"
-                        variant="outline"
-                        className="h-14 w-14 rounded-full"
-                        onClick={() => pauseTimer.mutate(id, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
-                        disabled={pauseTimer.isPending}
-                      >
-                        {pauseTimer.isPending ? <Loader2 className="h-6 w-6 animate-spin" /> : <Pause className="h-6 w-6" />}
-                      </Button>
-                    )}
+                    </Button>
 
-                    {timer.is_running && meeting.agenda_items && timer.active_item_index < meeting.agenda_items.length - 1 && (
+                    {/* Skip */}
+                    {meeting.agenda_items && timer.active_item_index < meeting.agenda_items.length - 1 && (
                       <Button
                         size="lg"
                         variant="outline"
@@ -310,15 +328,52 @@ export default function MeetingDetailPage({
                       </Button>
                     )}
 
+                    {/* Add time */}
+                    <div className="flex gap-1 items-center">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-14 w-14 rounded-full text-xs"
+                        onClick={() => addTime.mutate({ meetingId: id, seconds: 60 }, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
+                        disabled={addTime.isPending}
+                      >
+                        +1m
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-14 w-14 rounded-full text-xs"
+                        onClick={() => addTime.mutate({ meetingId: id, seconds: 300 }, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
+                        disabled={addTime.isPending}
+                      >
+                        +5m
+                      </Button>
+                    </div>
+
+                    {/* End & Log */}
                     <Button
                       size="lg"
-                      variant="outline"
-                      className="h-14 w-14 rounded-full"
-                      onClick={() => resetTimer.mutate(id, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
-                      disabled={resetTimer.isPending}
+                      variant="destructive"
+                      className="h-14 rounded-full px-6"
+                      onClick={() => endTimer.mutate(id, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
+                      disabled={endTimer.isPending}
                     >
-                      {resetTimer.isPending ? <Loader2 className="h-6 w-6 animate-spin" /> : <RotateCcw className="h-6 w-6" />}
+                      {endTimer.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckSquare className="mr-2 h-4 w-4" />}
+                      End & Log
                     </Button>
+
+                    {/* Reset (super admin only) */}
+                    {SUPER_ADMIN_ROLES.includes(currentUser?.role as UserRole) && (
+                      <Button
+                        size="lg"
+                        variant="outline"
+                        className="h-14 w-14 rounded-full"
+                        onClick={() => resetTimer.mutate(id, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
+                        disabled={resetTimer.isPending}
+                      >
+                        {resetTimer.isPending ? <Loader2 className="h-6 w-6 animate-spin" /> : <RotateCcw className="h-6 w-6" />}
+                      </Button>
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -397,7 +452,7 @@ export default function MeetingDetailPage({
                   )}
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {actionItems.filter((a) => a.task.trim()).length === 0 ? (
+                  {actionItems.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No action items</p>
                   ) : (
                     actionItems.map((item, i) => (
@@ -406,8 +461,8 @@ export default function MeetingDetailPage({
                           <>
                             <div className="flex items-start gap-2">
                               <Input
-                                value={item.task}
-                                onChange={(e) => updateActionItem(i, "task", e.target.value)}
+                                value={item.text}
+                                onChange={(e) => updateActionItem(i, "text", e.target.value)}
                                 placeholder="Task description"
                                 className="flex-1"
                               />
@@ -419,20 +474,20 @@ export default function MeetingDetailPage({
                             </div>
                             <div className="flex gap-2">
                               <div className="flex-1">
-                                <Input
-                                  value={item.assignee ?? ""}
-                                  onChange={(e) => updateActionItem(i, "assignee", e.target.value)}
-                                  placeholder="Assignee email"
-                                  type="email"
-                                  className="text-sm"
+                                <AssigneePicker
+                                  value={item.assignee_email ?? ""}
+                                  onChange={(v, userId) => {
+                                    updateActionItem(i, "assignee_email", v);
+                                    updateActionItem(i, "assignee_id", userId ?? "");
+                                  }}
+                                  onInvite={(email) => { setInviteIndex(i); handleInvite(email); }}
                                 />
                               </div>
-                              <div className="w-40">
-                                <Input
-                                  type="date"
-                                  value={item.due ?? ""}
-                                  onChange={(e) => updateActionItem(i, "due", e.target.value)}
-                                  className="text-sm"
+                              <div className="w-36">
+                                <DateEditor
+                                  value={item.due_date ?? ""}
+                                  label="Due date"
+                                  onChange={(v) => updateActionItem(i, "due_date", v)}
                                 />
                               </div>
                               <Button
@@ -450,13 +505,13 @@ export default function MeetingDetailPage({
                           <div className="flex items-start justify-between">
                             <div>
                               <p className={`text-sm ${item.done ? "line-through text-muted-foreground" : ""}`}>
-                                {item.task}
+                                {item.text}
                               </p>
-                              {(item.assignee || item.due) && (
+                              {(item.assignee_email || item.due_date) && (
                                 <p className="text-xs text-muted-foreground mt-1">
-                                  {item.assignee && <span>{item.assignee}</span>}
-                                  {item.assignee && item.due && <span> · </span>}
-                                  {item.due && <span>Due {item.due}</span>}
+                                  {item.assignee_email && <span>{item.assignee_email}</span>}
+                                  {item.assignee_email && item.due_date && <span> · </span>}
+                                  {item.due_date && <span>Due {item.due_date}</span>}
                                 </p>
                               )}
                             </div>
@@ -516,9 +571,9 @@ export default function MeetingDetailPage({
                         {(c.users?.name ?? "U")[0].toUpperCase()}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{c.users?.name ?? "Unknown"}</span>
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">{c.users?.role ?? "member"}</Badge>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium">{c.users?.name ?? "Unknown"}</span>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">{c.users?.role ?? "member"}</Badge>
                           <span className="text-[10px] text-muted-foreground">
                             {format(new Date(c.created_at), "MMM d, h:mm a")}
                           </span>
@@ -563,16 +618,14 @@ export default function MeetingDetailPage({
               <CardTitle>Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <div>
-                <p className="text-muted-foreground">Duration</p>
-                <p className="font-medium">{formatDuration(meeting.scheduled_duration)}</p>
-              </div>
-              {meeting.scheduled_at && (
-                <div>
-                  <p className="text-muted-foreground">Scheduled</p>
-                  <p className="font-medium">{format(new Date(meeting.scheduled_at), "MMM d, yyyy h:mm a")}</p>
-                </div>
-              )}
+              <ScheduleEditor
+                scheduledAt={meeting.scheduled_at}
+                scheduledDuration={meeting.scheduled_duration}
+                onSave={async (patch) => {
+                  await updateMeeting.mutateAsync({ id, patch });
+                }}
+                disabled={!isAdmin}
+              />
               {meeting.vibe && (
                 <div>
                   <p className="text-muted-foreground">Vibe</p>
@@ -648,6 +701,46 @@ export default function MeetingDetailPage({
           )}
         </div>
       </div>
+
+      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Invite user</DialogTitle>
+            <DialogDescription>
+              {inviteEmail} is not registered. Enter a name to invite them.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Name</label>
+              <Input
+                value={inviteName}
+                onChange={(e) => setInviteName(e.target.value)}
+                placeholder="Full name"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInviteOpen(false)}>Cancel</Button>
+            <Button
+              onClick={async () => {
+                try {
+                  const user = await inviteMutation.mutateAsync({ email: inviteEmail, name: inviteName });
+                  updateActionItem(inviteIndex, "assignee_email", user.email);
+                  setInviteOpen(false);
+                  toast.success(`${inviteName} invited and assigned`);
+                } catch (e) {
+                  toast.error(await getErrorMsg(e));
+                }
+              }}
+              disabled={inviteMutation.isPending || !inviteName.trim()}
+            >
+              {inviteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Invite &amp; assign
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

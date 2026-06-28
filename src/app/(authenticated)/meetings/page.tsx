@@ -42,7 +42,7 @@ export default function MeetingsPage() {
   const isAdmin = ADMIN_ROLES.includes(role as UserRole);
   const [tab, setTab] = useState<Tab>("upcoming");
   const [search, setSearch] = useState("");
-  const { data, isLoading } = useMeetings({ perPage: 100 });
+  const { data, isLoading, error } = useMeetings({ perPage: 100 });
 
   useRealtimeInvalidation([
     { channel: "meetings-list", table: "meetings", events: ["*"], queryKeys: [["meetings"]] },
@@ -156,7 +156,11 @@ export default function MeetingsPage() {
 
       {/* List */}
       <div className="flex-1 overflow-y-auto py-6 space-y-4">
-        {isLoading ? (
+        {error ? (
+        <div className="flex min-h-[40vh] items-center justify-center">
+          <p className="text-sm text-destructive">Failed to load meetings</p>
+        </div>
+      ) : isLoading ? (
           <>
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="bg-surface rounded-xl p-6 flex items-center gap-6 shadow-sm border border-transparent">

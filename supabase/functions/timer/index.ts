@@ -20,11 +20,8 @@ Deno.serve(async (req: Request) => {
     const { data: meeting, error: fetchErr } = await svc
       .from("meetings")
       .select(`
-        id, status, scheduled_duration, actual_duration,
-        is_timer_running, paused_at,
-        timer_started_at, timer_base_total,
-        timer_item_started_at, timer_base_item,
-        active_item_index, agenda_items, team_id
+        id, status, scheduled_duration,
+        agenda_items, team_id
       `)
       .eq("id", meetingId)
       .is("deleted_at", null)
@@ -33,8 +30,26 @@ Deno.serve(async (req: Request) => {
     if (fetchErr) return err("Meeting not found", 404);
     if (meeting.team_id !== caller.team_id) return err("Forbidden", 403);
 
+    const { data: timerState } = await svc
+      .from("meeting_timer_state")
+      .select("*")
+      .eq("meeting_id", meetingId)
+      .maybeSingle();
+
+    const timer = timerState ?? {
+      is_timer_running: false,
+      paused_at: null,
+      timer_started_at: null,
+      timer_base_total: 0,
+      timer_item_started_at: null,
+      timer_base_item: 0,
+      active_item_index: 0,
+    };
+
+    const meetingWithTimer = { ...meeting, ...timer };
+
     if (req.method === "GET") {
-      return ok(computeState(meeting));
+      return ok(computeState(meetingWithTimer));
     }
 
     if (req.method !== "POST") return err("Method not allowed", 405);
@@ -44,7 +59,7 @@ Deno.serve(async (req: Request) => {
     const now = new Date().toISOString();
 
     if (action === "start") {
-      if (meeting.is_timer_running) return err("Timer is already running");
+      if (timer.is_timer_running) return err("Timer is already running");
       if (!["planned", "active"].includes(meeting.status)) {
         return err("Can only start a planned or active meeting");
       }
@@ -57,18 +72,17 @@ Deno.serve(async (req: Request) => {
         timer_base_item:       0,
         active_item_index:     0,
         paused_at:             null,
-        status:                "active",
       };
 
-      return applyPatch(svc, meetingId, patch);
+      return applyPatch(svc, meetingId, patch, { status: "active" });
     }
 
     if (action === "pause") {
-      if (!meeting.is_timer_running) return err("Timer is not running");
+      if (!timer.is_timer_running) return err("Timer is not running");
 
       const nowDate    = new Date();
-      const elapsedTotal = computeElapsedTotal(meeting, nowDate);
-      const elapsedItem  = computeElapsedItem(meeting, nowDate);
+      const elapsedTotal = computeElapsedTotal(meetingWithTimer, nowDate);
+      const elapsedItem  = computeElapsedItem(meetingWithTimer, nowDate);
 
       return applyPatch(svc, meetingId, {
         is_timer_running:  false,
@@ -81,7 +95,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (action === "resume") {
-      if (meeting.is_timer_running) return err("Timer is already running");
+      if (timer.is_timer_running) return err("Timer is already running");
       if (meeting.status !== "active") return err("Meeting is not active");
 
       return applyPatch(svc, meetingId, {
@@ -93,17 +107,17 @@ Deno.serve(async (req: Request) => {
     }
 
     if (action === "next-item") {
-      if (!meeting.is_timer_running) return err("Timer is not running");
+      if (!timer.is_timer_running) return err("Timer is not running");
 
       const agendaItems = meeting.agenda_items as unknown[];
-      const nextIndex   = (meeting.active_item_index ?? 0) + 1;
+      const nextIndex   = (timer.active_item_index ?? 0) + 1;
 
       if (nextIndex >= agendaItems.length) {
         return err("Already on the last agenda item");
       }
 
       const nowDate     = new Date();
-      const elapsedTotal = computeElapsedTotal(meeting, nowDate);
+      const elapsedTotal = computeElapsedTotal(meetingWithTimer, nowDate);
 
       return applyPatch(svc, meetingId, {
         active_item_index:     nextIndex,
@@ -125,8 +139,39 @@ Deno.serve(async (req: Request) => {
         timer_base_item:       0,
         active_item_index:     0,
         paused_at:             null,
-        status:                "active",
-        actual_duration:       0,
+      }, { status: "active", actual_duration: 0 });
+    }
+
+    if (action === "end") {
+      const nowDate = new Date();
+      const elapsedTotal = computeElapsedTotal(meetingWithTimer, nowDate);
+      const scheduleDelay = meeting.scheduled_at
+        ? Math.max(0, Math.floor((nowDate.getTime() - new Date(meeting.scheduled_at as string).getTime()) / 1000))
+        : 0;
+      const overrun = Math.max(0, Math.floor(elapsedTotal - (meeting.scheduled_duration as number)));
+
+      return applyPatch(svc, meetingId, {
+        is_timer_running:      false,
+        timer_started_at:      null,
+        timer_item_started_at: null,
+        paused_at:             null,
+        timer_base_total:      elapsedTotal,
+      }, {
+        status: "completed",
+        actual_duration: Math.floor(elapsedTotal),
+        schedule_delay_seconds: scheduleDelay,
+        overrun_seconds: overrun,
+      });
+    }
+
+    if (action === "add-time") {
+      const body = await req.json();
+      const extra = Math.max(1, Math.min(60, body?.seconds ?? 60));
+      const nowDate = new Date();
+      const elapsedItem = computeElapsedItem(meetingWithTimer, nowDate);
+
+      return applyPatch(svc, meetingId, {
+        timer_base_item: elapsedItem + extra,
       });
     }
 
@@ -182,18 +227,58 @@ function computeState(meeting: Record<string, unknown>) {
   };
 }
 
+const TIMER_FIELDS = new Set([
+  "is_timer_running", "timer_started_at", "timer_item_started_at",
+  "timer_base_total", "timer_base_item", "active_item_index", "paused_at",
+]);
+
 async function applyPatch(
   svc: ReturnType<typeof serviceClient>,
   meetingId: string,
-  patch: Record<string, unknown>
+  patch: Record<string, unknown>,
+  meetingPatch?: Record<string, unknown>
 ): Promise<Response> {
-  const { data, error } = await svc
+  const timerPatch: Record<string, unknown> = {};
+  const restPatch: Record<string, unknown> = {};
+
+  for (const [key, val] of Object.entries(patch)) {
+    if (TIMER_FIELDS.has(key)) {
+      timerPatch[key] = val;
+    } else {
+      restPatch[key] = val;
+    }
+  }
+
+  if (meetingPatch) Object.assign(restPatch, meetingPatch);
+
+  if (Object.keys(timerPatch).length > 0) {
+    timerPatch.updated_at = new Date().toISOString();
+    const { error: tErr } = await svc
+      .from("meeting_timer_state")
+      .upsert({ meeting_id: meetingId, ...timerPatch }, { onConflict: "meeting_id" })
+      .select()
+      .single();
+
+    if (tErr) return err(tErr.message);
+  }
+
+  if (Object.keys(restPatch).length > 0) {
+    const { data, error } = await svc
+      .from("meetings")
+      .update(restPatch)
+      .eq("id", meetingId)
+      .select()
+      .single();
+
+    if (error) return err(error.message);
+    return ok(computeState({ ...data, ...timerPatch }));
+  }
+
+  const { data: meeting } = await svc
     .from("meetings")
-    .update(patch)
+    .select("id, status, scheduled_duration, agenda_items")
     .eq("id", meetingId)
-    .select()
     .single();
 
-  if (error) return err(error.message);
-  return ok(computeState(data));
+  return ok(computeState({ ...meeting, ...timerPatch }));
 }

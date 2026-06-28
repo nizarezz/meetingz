@@ -23,7 +23,7 @@ Deno.serve(async (req: Request) => {
       const svc = serviceClient();
       const { data, error } = await svc
         .from("meetings")
-        .select("id, title, status, scheduled_at, department, meeting_type, agenda_items, active_item_index, is_timer_running, timer_started_at, timer_item_started_at, timer_base_total, timer_base_item, paused_at")
+        .select("id, title, status, scheduled_at, department, meeting_type, agenda_items")
         .eq("share_token", parts[1])
         .is("deleted_at", null)
         .single();
@@ -46,16 +46,22 @@ Deno.serve(async (req: Request) => {
       const base = { id: data.id, title: data.title, state, scheduled_at: data.scheduled_at, department: data.department, meeting_type: data.meeting_type };
 
       if (state === "active" || state === "starting_soon") {
+        const { data: timer } = await svc
+          .from("meeting_timer_state")
+          .select("*")
+          .eq("meeting_id", data.id)
+          .maybeSingle();
+
         return ok({
           ...base,
           agenda_items: data.agenda_items,
-          active_item_index: data.active_item_index,
-          is_timer_running: data.is_timer_running,
-          timer_started_at: data.timer_started_at,
-          timer_item_started_at: data.timer_item_started_at,
-          timer_base_total: data.timer_base_total,
-          timer_base_item: data.timer_base_item,
-          paused_at: data.paused_at,
+          active_item_index: timer?.active_item_index ?? 0,
+          is_timer_running: timer?.is_timer_running ?? false,
+          timer_started_at: timer?.timer_started_at ?? null,
+          timer_item_started_at: timer?.timer_item_started_at ?? null,
+          timer_base_total: timer?.timer_base_total ?? 0,
+          timer_base_item: timer?.timer_base_item ?? 0,
+          paused_at: timer?.paused_at ?? null,
         });
       }
 
@@ -67,9 +73,8 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET" && !id) {
       const status     = url.searchParams.get("status");
       const department = url.searchParams.get("department");
-      const hasPage    = url.searchParams.has("page") || url.searchParams.has("per_page");
-      const page       = parseInt(url.searchParams.get("page") ?? "1", 10);
-      const perPage    = parseInt(url.searchParams.get("per_page") ?? "1000", 10);
+      const page       = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
+      const perPage    = Math.max(1, Math.min(100, parseInt(url.searchParams.get("per_page") ?? "50", 10)));
       const from       = (page - 1) * perPage;
       const to         = from + perPage - 1;
 
@@ -81,7 +86,6 @@ Deno.serve(async (req: Request) => {
           scheduled_duration, actual_duration, status,
           agenda_items, scheduled_at, created_at,
           created_by, facilitator_id,
-          is_timer_running, active_item_index,
           share_token,
           meeting_participants (
             id, user_id, role, department,
@@ -89,27 +93,32 @@ Deno.serve(async (req: Request) => {
           )
         `, { count: "exact" })
         .is("deleted_at", null)
-        .order("scheduled_at", { ascending: true });
+        .order("created_at", { ascending: false });
 
       if (status)     query = query.eq("status", status);
       if (department) query = query.eq("department", department);
 
-      const queryFn = hasPage ? query.range(from, to) : query;
-      const { data, error, count } = await queryFn;
+      query = query.range(from, to);
+      const { data, error, count } = await query;
       if (error) return err(error.message);
-      return ok({ data, total: count ?? 0, page, per_page: perPage });
+      const total = count ?? 0;
+      return ok({ data, page, per_page: perPage, total, total_pages: Math.ceil(total / perPage) });
     }
 
     if (req.method === "GET" && id) {
       const { data, error } = await userClient(req)
         .from("meetings")
         .select(`
-          *,
+          id, title, department, meeting_type, vibe,
+          scheduled_duration, actual_duration, status,
+          agenda_items, scheduled_at, created_at,
+          created_by, facilitator_id, team_id,
+          share_token, deleted_at, updated_at,
           meeting_participants (
             id, user_id, role, department, notified_at,
             users ( id, name, email, department )
           ),
-          outcomes ( id, meeting_id, primary_outcome, action_items, notes, logged_by, team_id, created_at )
+          outcomes ( id, meeting_id, primary_outcome, notes, logged_by, team_id, created_at )
         `)
         .eq("id", id)
         .is("deleted_at", null)
@@ -217,44 +226,42 @@ Deno.serve(async (req: Request) => {
       if (error) return err(error.message);
 
       if (body.status === "completed") {
-        (async () => {
-          try {
-            const { data: participants } = await userClient(req)
-              .from("meeting_participants")
-              .select("user_id, users!inner(id, email, name)")
-              .eq("meeting_id", id);
+        try {
+          const { data: participants } = await userClient(req)
+            .from("meeting_participants")
+            .select("user_id, users!inner(id, email, name)")
+            .eq("meeting_id", id);
 
-            if (participants?.length) {
-              const userIds = participants.map((p: any) => p.user_id);
-              const { data: prefs } = await serviceClient()
-                .from("notification_preferences")
-                .select("user_id")
-                .in("user_id", userIds)
-                .eq("outcome_prompt_email", true);
+          if (participants?.length) {
+            const userIds = participants.map((p: any) => p.user_id);
+            const { data: prefs } = await serviceClient()
+              .from("notification_preferences")
+              .select("user_id")
+              .in("user_id", userIds)
+              .eq("outcome_prompt_email", true);
 
-              const baseUrl = Deno.env.get("APP_URL") ?? "http://localhost:3000";
-              for (const pref of prefs ?? []) {
-                const user = participants.find((p: any) => p.user_id === pref.user_id)?.users as any;
-                if (!user?.email) continue;
-                try {
-                  await sendNotificationEmail(
-                    user.email, "outcome-prompt",
-                    `Outcome needed: ${data.title}`,
-                    {
-                      name: user.name, title: data.title,
-                      department: data.department, meetingType: data.meeting_type,
-                      meetingUrl: `${baseUrl}/meetings/${id}`,
-                    }
-                  );
-                } catch (e) {
-                  console.error(`Failed to send outcome prompt to ${user.email}:`, e);
-                }
+            const baseUrl = Deno.env.get("APP_URL") ?? "http://localhost:3000";
+            for (const pref of prefs ?? []) {
+              const user = participants.find((p: any) => p.user_id === pref.user_id)?.users as any;
+              if (!user?.email) continue;
+              try {
+                await sendNotificationEmail(
+                  user.email, "outcome-prompt",
+                  `Outcome needed: ${data.title}`,
+                  {
+                    name: user.name, title: data.title,
+                    department: data.department, meetingType: data.meeting_type,
+                    meetingUrl: `${baseUrl}/meetings/${id}`,
+                  }
+                );
+              } catch (e) {
+                console.error(`Failed to send outcome prompt to ${user.email}:`, e);
               }
             }
-          } catch (e) {
-            console.error("Outcome prompt error:", e);
           }
-        })();
+        } catch (e) {
+          console.error("Outcome prompt error:", e);
+        }
       }
 
       return ok(data);
