@@ -24,7 +24,7 @@ Deno.serve(async (req: Request) => {
       const svc = serviceClient();
       const { data, error } = await svc
         .from("meetings")
-        .select("id, title, status, scheduled_at, department, meeting_type, agenda_items")
+        .select("id, title, status, scheduled_at, department, meeting_type")
         .eq("share_token", parts[1])
         .is("deleted_at", null)
         .single();
@@ -53,9 +53,15 @@ Deno.serve(async (req: Request) => {
           .eq("meeting_id", data.id)
           .maybeSingle();
 
+        const { data: items } = await svc
+          .from("agenda_items")
+          .select("title, duration, assignee_email, presenter, notes")
+          .eq("meeting_id", data.id)
+          .order("sort_order", { ascending: true });
+
         return ok({
           ...base,
-          agenda_items: data.agenda_items,
+          agenda_items: items ?? [],
           active_item_index: timer?.active_item_index ?? 0,
           is_timer_running: timer?.is_timer_running ?? false,
           timer_started_at: timer?.timer_started_at ?? null,
@@ -85,16 +91,18 @@ Deno.serve(async (req: Request) => {
         .select(`
           id, title, department, meeting_type, vibe,
           scheduled_duration, actual_duration, status,
-          agenda_items, scheduled_at, created_at,
+          scheduled_at, created_at,
           created_by, facilitator_id,
           share_token,
           meeting_participants (
             id, user_id, role, department,
             users ( id, name, email )
-          )
+          ),
+          agenda_items ( title, duration, assignee_email, presenter, notes )
         `, { count: "exact" })
         .is("deleted_at", null)
         .order("created_at", { ascending: false });
+      query = query.order("sort_order", { foreignTable: "agenda_items", ascending: true });
 
       if (status)     query = query.eq("status", status);
       if (department) query = query.eq("department", department);
@@ -112,16 +120,18 @@ Deno.serve(async (req: Request) => {
         .select(`
           id, title, department, meeting_type, vibe,
           scheduled_duration, actual_duration, status,
-          agenda_items, scheduled_at, created_at,
+          scheduled_at, created_at,
           created_by, facilitator_id, team_id,
           share_token, deleted_at, updated_at,
           meeting_participants (
             id, user_id, role, department, notified_at,
             users ( id, name, email, department )
           ),
-          outcomes ( id, meeting_id, primary_outcome, notes, logged_by, team_id, created_at )
+          outcomes ( id, meeting_id, primary_outcome, notes, logged_by, team_id, created_at ),
+          agenda_items ( title, duration, assignee_email, presenter, notes )
         `)
         .eq("id", id)
+        .order("sort_order", { foreignTable: "agenda_items", ascending: true })
         .is("deleted_at", null)
         .single();
 
@@ -154,7 +164,6 @@ Deno.serve(async (req: Request) => {
           meeting_type,
           vibe,
           scheduled_duration,
-          agenda_items,
           scheduled_at,
           facilitator_id,
           team_id:    caller.team_id,
@@ -165,6 +174,31 @@ Deno.serve(async (req: Request) => {
         .single();
 
       if (meetingErr) return err(meetingErr.message);
+
+      if (agenda_items.length > 0) {
+        const rows = agenda_items.map((item: Record<string, unknown>, i: number) => ({
+          meeting_id: meeting.id,
+          sort_order: i,
+          title: item.title,
+          duration: item.duration ?? 0,
+          assignee_email: item.assignee_email ?? null,
+          presenter: item.presenter ?? null,
+          notes: item.notes ?? null,
+          team_id: caller.team_id,
+        }));
+
+        const { error: aiErr } = await svc
+          .from("agenda_items")
+          .insert(rows);
+
+        if (aiErr) return err(aiErr.message);
+      }
+
+      const { data: items } = await svc
+        .from("agenda_items")
+        .select("title, duration, assignee_email, presenter, notes")
+        .eq("meeting_id", meeting.id)
+        .order("sort_order", { ascending: true });
 
       if (participants.length > 0) {
         const rows = participants.map(
@@ -184,7 +218,7 @@ Deno.serve(async (req: Request) => {
         if (pErr) return err(pErr.message);
       }
 
-      return ok(meeting, 201);
+      return ok({ ...meeting, agenda_items: items ?? [] }, 201);
     }
 
     if (req.method === "PATCH" && id) {
@@ -214,7 +248,7 @@ Deno.serve(async (req: Request) => {
         Object.entries(body).filter(
           ([k]) => !["timer_started_at","timer_base_total","timer_base_item",
                         "timer_item_started_at","is_timer_running","paused_at",
-                        "team_id","created_by"].includes(k)
+                        "agenda_items","team_id","created_by"].includes(k)
         )
       );
 
@@ -227,6 +261,34 @@ Deno.serve(async (req: Request) => {
         .single();
 
       if (error) return err(error.message);
+
+      if (body.agenda_items) {
+        const svc = serviceClient();
+        await svc.from("agenda_items").delete().eq("meeting_id", id);
+
+        const rows = body.agenda_items.map((item: Record<string, unknown>, i: number) => ({
+          meeting_id: id,
+          sort_order: i,
+          title: item.title,
+          duration: item.duration ?? 0,
+          assignee_email: item.assignee_email ?? null,
+          presenter: item.presenter ?? null,
+          notes: item.notes ?? null,
+          team_id: caller.team_id,
+        }));
+
+        const { error: aiErr } = await svc
+          .from("agenda_items")
+          .insert(rows);
+
+        if (aiErr) return err(aiErr.message);
+      }
+
+      const { data: items } = await serviceClient()
+        .from("agenda_items")
+        .select("title, duration, assignee_email, presenter, notes")
+        .eq("meeting_id", id)
+        .order("sort_order", { ascending: true });
 
       if (body.status === "completed") {
         try {
@@ -267,7 +329,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      return ok(data);
+      return ok({ ...data, agenda_items: items ?? [] });
     }
 
     if (req.method === "DELETE" && id) {

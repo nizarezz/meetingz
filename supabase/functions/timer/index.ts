@@ -22,7 +22,7 @@ Deno.serve(async (req: Request) => {
       .from("meetings")
       .select(`
         id, status, scheduled_duration,
-        agenda_items, team_id
+        team_id
       `)
       .eq("id", meetingId)
       .is("deleted_at", null)
@@ -30,6 +30,12 @@ Deno.serve(async (req: Request) => {
 
     if (fetchErr) return err("Meeting not found", 404);
     if (meeting.team_id !== caller.team_id) return err("Forbidden", 403);
+
+    const { data: agendaItems } = await svc
+      .from("agenda_items")
+      .select("title, duration")
+      .eq("meeting_id", meetingId)
+      .order("sort_order", { ascending: true });
 
     const { data: timerState } = await svc
       .from("meeting_timer_state")
@@ -47,7 +53,7 @@ Deno.serve(async (req: Request) => {
       active_item_index: 0,
     };
 
-    const meetingWithTimer = { ...meeting, ...timer };
+    const meetingWithTimer = { ...meeting, agenda_items: agendaItems ?? [], ...timer };
 
     if (req.method === "GET") {
       return ok(computeState(meetingWithTimer));
@@ -278,9 +284,15 @@ async function applyPatch(
 
   const { data: meeting } = await svc
     .from("meetings")
-    .select("id, status, scheduled_duration, agenda_items")
+    .select("id, status, scheduled_duration")
     .eq("id", meetingId)
     .single();
 
-  return ok(computeState({ ...meeting, ...timerPatch }));
+  const { data: items } = await svc
+    .from("agenda_items")
+    .select("title, duration")
+    .eq("meeting_id", meetingId)
+    .order("sort_order", { ascending: true });
+
+  return ok(computeState({ ...meeting, agenda_items: items ?? [], ...timerPatch }));
 }
