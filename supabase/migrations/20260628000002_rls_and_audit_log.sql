@@ -4,15 +4,16 @@
 
 -- ============================================================
 -- Helper: team_id for the requesting user
+-- Created in public schema (auth schema not writable via CLI).
 -- ============================================================
-CREATE OR REPLACE FUNCTION auth.user_team_id() RETURNS uuid AS $$
+CREATE OR REPLACE FUNCTION public.user_team_id() RETURNS uuid AS $$
   SELECT team_id FROM public.users WHERE id = auth.uid() AND deleted_at IS NULL;
 $$ LANGUAGE sql STABLE;
 
 -- ============================================================
 -- Helper: role for the requesting user
 -- ============================================================
-CREATE OR REPLACE FUNCTION auth.user_role() RETURNS text AS $$
+CREATE OR REPLACE FUNCTION public.user_role() RETURNS text AS $$
   SELECT role FROM public.users WHERE id = auth.uid() AND deleted_at IS NULL;
 $$ LANGUAGE sql STABLE;
 
@@ -36,12 +37,12 @@ ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'teams' AND policyname = 'Team members can read own team') THEN
     CREATE POLICY "Team members can read own team"
-      ON teams FOR SELECT USING (id = auth.user_team_id());
+      ON teams FOR SELECT USING (id = public.user_team_id());
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'teams' AND policyname = 'Only super_admin can update team') THEN
     CREATE POLICY "Only super_admin can update team"
-      ON teams FOR UPDATE USING (auth.user_role() = 'super_admin');
+      ON teams FOR UPDATE USING (public.user_role() = 'super_admin');
   END IF;
 END $$;
 
@@ -53,7 +54,7 @@ ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'users' AND policyname = 'Team members can read users in team') THEN
     CREATE POLICY "Team members can read users in team"
-      ON users FOR SELECT USING (team_id = auth.user_team_id());
+      ON users FOR SELECT USING (team_id = public.user_team_id());
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'users' AND policyname = 'Users can update own profile') THEN
@@ -64,8 +65,8 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'users' AND policyname = 'Admins can update users in team') THEN
     CREATE POLICY "Admins can update users in team"
       ON users FOR UPDATE USING (
-        team_id = auth.user_team_id()
-        AND auth.user_role() IN ('super_admin', 'dept_admin')
+        team_id = public.user_team_id()
+        AND public.user_role() IN ('super_admin', 'dept_admin')
       );
   END IF;
 END $$;
@@ -78,30 +79,30 @@ ALTER TABLE meetings ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'meetings' AND policyname = 'Team members can read meetings') THEN
     CREATE POLICY "Team members can read meetings"
-      ON meetings FOR SELECT USING (team_id = auth.user_team_id());
+      ON meetings FOR SELECT USING (team_id = public.user_team_id());
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'meetings' AND policyname = 'Admins can insert meetings') THEN
     CREATE POLICY "Admins can insert meetings"
       ON meetings FOR INSERT WITH CHECK (
-        team_id = auth.user_team_id()
-        AND auth.user_role() IN ('super_admin', 'dept_admin')
+        team_id = public.user_team_id()
+        AND public.user_role() IN ('super_admin', 'dept_admin')
       );
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'meetings' AND policyname = 'Admins or creator can update meetings') THEN
     CREATE POLICY "Admins or creator can update meetings"
       ON meetings FOR UPDATE USING (
-        team_id = auth.user_team_id()
-        AND (auth.user_role() IN ('super_admin', 'dept_admin') OR created_by = auth.uid())
+        team_id = public.user_team_id()
+        AND (public.user_role() IN ('super_admin', 'dept_admin') OR created_by = auth.uid())
       );
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'meetings' AND policyname = 'Only super_admin can delete meetings') THEN
     CREATE POLICY "Only super_admin can delete meetings"
       ON meetings FOR DELETE USING (
-        team_id = auth.user_team_id()
-        AND auth.user_role() = 'super_admin'
+        team_id = public.user_team_id()
+        AND public.user_role() = 'super_admin'
       );
   END IF;
 END $$;
@@ -114,28 +115,28 @@ ALTER TABLE meeting_participants ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'meeting_participants' AND policyname = 'Team members can read participants') THEN
     CREATE POLICY "Team members can read participants"
-      ON meeting_participants FOR SELECT USING (team_id = auth.user_team_id());
+      ON meeting_participants FOR SELECT USING (team_id = public.user_team_id());
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'meeting_participants' AND policyname = 'Admins can manage participants') THEN
     CREATE POLICY "Admins can manage participants"
       ON meeting_participants FOR INSERT WITH CHECK (
-        team_id = auth.user_team_id()
-        AND auth.user_role() IN ('super_admin', 'dept_admin')
+        team_id = public.user_team_id()
+        AND public.user_role() IN ('super_admin', 'dept_admin')
       );
   END IF;
 
   -- Reuse same check for UPDATE and DELETE
   CREATE POLICY "Admins can update participants"
     ON meeting_participants FOR UPDATE USING (
-      team_id = auth.user_team_id()
-      AND auth.user_role() IN ('super_admin', 'dept_admin')
+      team_id = public.user_team_id()
+      AND public.user_role() IN ('super_admin', 'dept_admin')
     );
 
   CREATE POLICY "Admins can delete participants"
     ON meeting_participants FOR DELETE USING (
-      team_id = auth.user_team_id()
-      AND auth.user_role() IN ('super_admin', 'dept_admin')
+      team_id = public.user_team_id()
+      AND public.user_role() IN ('super_admin', 'dept_admin')
     );
 END $$;
 
@@ -147,22 +148,22 @@ ALTER TABLE outcomes ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'outcomes' AND policyname = 'Team members can read outcomes') THEN
     CREATE POLICY "Team members can read outcomes"
-      ON outcomes FOR SELECT USING (team_id = auth.user_team_id());
+      ON outcomes FOR SELECT USING (team_id = public.user_team_id());
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'outcomes' AND policyname = 'Admins can insert outcomes') THEN
     CREATE POLICY "Admins can insert outcomes"
       ON outcomes FOR INSERT WITH CHECK (
-        team_id = auth.user_team_id()
-        AND auth.user_role() IN ('super_admin', 'dept_admin')
+        team_id = public.user_team_id()
+        AND public.user_role() IN ('super_admin', 'dept_admin')
       );
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'outcomes' AND policyname = 'Admins can update outcomes') THEN
     CREATE POLICY "Admins can update outcomes"
       ON outcomes FOR UPDATE USING (
-        team_id = auth.user_team_id()
-        AND auth.user_role() IN ('super_admin', 'dept_admin')
+        team_id = public.user_team_id()
+        AND public.user_role() IN ('super_admin', 'dept_admin')
       );
   END IF;
 END $$;
@@ -175,14 +176,14 @@ ALTER TABLE action_items ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'action_items' AND policyname = 'Team members can read action items') THEN
     CREATE POLICY "Team members can read action items"
-      ON action_items FOR SELECT USING (team_id = auth.user_team_id());
+      ON action_items FOR SELECT USING (team_id = public.user_team_id());
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'action_items' AND policyname = 'Admins or assignee can update action items') THEN
     CREATE POLICY "Admins or assignee can update action items"
       ON action_items FOR UPDATE USING (
-        team_id = auth.user_team_id()
-        AND (auth.user_role() IN ('super_admin', 'dept_admin') OR assignee_id = auth.uid())
+        team_id = public.user_team_id()
+        AND (public.user_role() IN ('super_admin', 'dept_admin') OR assignee_id = auth.uid())
       );
   END IF;
 END $$;
@@ -195,22 +196,22 @@ ALTER TABLE templates ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'templates' AND policyname = 'Team members can read templates') THEN
     CREATE POLICY "Team members can read templates"
-      ON templates FOR SELECT USING (team_id = auth.user_team_id());
+      ON templates FOR SELECT USING (team_id = public.user_team_id());
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'templates' AND policyname = 'Admins can insert templates') THEN
     CREATE POLICY "Admins can insert templates"
       ON templates FOR INSERT WITH CHECK (
-        team_id = auth.user_team_id()
-        AND auth.user_role() IN ('super_admin', 'dept_admin')
+        team_id = public.user_team_id()
+        AND public.user_role() IN ('super_admin', 'dept_admin')
       );
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'templates' AND policyname = 'Admins can update templates') THEN
     CREATE POLICY "Admins can update templates"
       ON templates FOR UPDATE USING (
-        team_id = auth.user_team_id()
-        AND auth.user_role() IN ('super_admin', 'dept_admin')
+        team_id = public.user_team_id()
+        AND public.user_role() IN ('super_admin', 'dept_admin')
       );
   END IF;
 END $$;
@@ -245,27 +246,27 @@ ALTER TABLE agenda_items ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'agenda_items' AND policyname = 'Team members can read agenda items') THEN
     CREATE POLICY "Team members can read agenda items"
-      ON agenda_items FOR SELECT USING (team_id = auth.user_team_id());
+      ON agenda_items FOR SELECT USING (team_id = public.user_team_id());
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'agenda_items' AND policyname = 'Admins can manage agenda items') THEN
     CREATE POLICY "Admins can manage agenda items"
       ON agenda_items FOR INSERT WITH CHECK (
-        team_id = auth.user_team_id()
-        AND auth.user_role() IN ('super_admin', 'dept_admin')
+        team_id = public.user_team_id()
+        AND public.user_role() IN ('super_admin', 'dept_admin')
       );
   END IF;
 
   CREATE POLICY "Admins can update agenda items"
     ON agenda_items FOR UPDATE USING (
-      team_id = auth.user_team_id()
-      AND auth.user_role() IN ('super_admin', 'dept_admin')
+      team_id = public.user_team_id()
+      AND public.user_role() IN ('super_admin', 'dept_admin')
     );
 
   CREATE POLICY "Admins can delete agenda items"
     ON agenda_items FOR DELETE USING (
-      team_id = auth.user_team_id()
-      AND auth.user_role() IN ('super_admin', 'dept_admin')
+      team_id = public.user_team_id()
+      AND public.user_role() IN ('super_admin', 'dept_admin')
     );
 END $$;
 
@@ -278,21 +279,21 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'meeting_timer_state' AND policyname = 'Team members can read timer state') THEN
     CREATE POLICY "Team members can read timer state"
       ON meeting_timer_state FOR SELECT
-      USING (meeting_id IN (SELECT id FROM meetings WHERE team_id = auth.user_team_id()));
+      USING (meeting_id IN (SELECT id FROM meetings WHERE team_id = public.user_team_id()));
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'meeting_timer_state' AND policyname = 'Admins can manage timer state') THEN
     CREATE POLICY "Admins can manage timer state"
       ON meeting_timer_state FOR INSERT WITH CHECK (
-        meeting_id IN (SELECT id FROM meetings WHERE team_id = auth.user_team_id())
-        AND auth.user_role() IN ('super_admin', 'dept_admin')
+        meeting_id IN (SELECT id FROM meetings WHERE team_id = public.user_team_id())
+        AND public.user_role() IN ('super_admin', 'dept_admin')
       );
   END IF;
 
   CREATE POLICY "Admins can update timer state"
     ON meeting_timer_state FOR UPDATE USING (
-      meeting_id IN (SELECT id FROM meetings WHERE team_id = auth.user_team_id())
-      AND auth.user_role() IN ('super_admin', 'dept_admin')
+      meeting_id IN (SELECT id FROM meetings WHERE team_id = public.user_team_id())
+      AND public.user_role() IN ('super_admin', 'dept_admin')
     );
 END $$;
 
@@ -319,7 +320,7 @@ ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'audit_log' AND policyname = 'Team members can read audit log') THEN
     CREATE POLICY "Team members can read audit log"
-      ON audit_log FOR SELECT USING (team_id = auth.user_team_id());
+      ON audit_log FOR SELECT USING (team_id = public.user_team_id());
   END IF;
 END $$;
 
