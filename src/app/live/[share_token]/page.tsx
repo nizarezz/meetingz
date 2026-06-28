@@ -11,28 +11,6 @@ import { formatDuration } from "@/lib/utils";
 import { Timer, Mic, ListChecks, Clock, CheckCircle } from "lucide-react";
 import { format } from "date-fns";
 
-function computeElapsed(meeting: LiveMeeting) {
-  const now = new Date();
-  const baseTotal = meeting.timer_base_total ?? 0;
-  const baseItem = meeting.timer_base_item ?? 0;
-
-  if (!meeting.is_timer_running) {
-    return { total: baseTotal, item: baseItem };
-  }
-
-  let total = baseTotal;
-  if (meeting.timer_started_at) {
-    total += Math.floor((now.getTime() - new Date(meeting.timer_started_at).getTime()) / 1000);
-  }
-
-  let item = baseItem;
-  if (meeting.timer_item_started_at) {
-    item += Math.floor((now.getTime() - new Date(meeting.timer_item_started_at).getTime()) / 1000);
-  }
-
-  return { total, item };
-}
-
 function UpcomingView({ data }: { data: LiveMeeting }) {
   return (
     <div className="min-h-screen bg-background p-6 max-w-lg mx-auto flex items-center justify-center">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useTeam, useUpdateTeam } from "@/lib/hooks/use-teams";
 import { useUsers, useApproveUser, useDeactivateUser, useInviteUser } from "@/lib/hooks/use-users";
@@ -12,7 +12,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -63,9 +63,7 @@ export default function OrganizationPage() {
     defaultValues: { email: "", name: "", department: "", role: "member" },
   });
 
-  useEffect(() => {
-    if (team?.name) setTeamName(team.name);
-  }, [team?.name]);
+  // teamName state initialized inline — no effect needed
 
   const users = usersPage?.data ?? [];
   const totalUsers = usersPage?.total ?? 0;

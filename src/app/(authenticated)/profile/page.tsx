@@ -16,7 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase/client";
-import { Sun, Moon, Monitor, Loader2, LogOut, Mail, User } from "lucide-react";
+import { Sun, Moon, Monitor, LogOut, Mail, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 

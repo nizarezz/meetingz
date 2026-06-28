@@ -41,5 +41,6 @@ export function useRealtimeInvalidation(configs: ChannelConfig[]) {
     return () => {
       channels.forEach((ch) => supabase.removeChannel(ch));
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qc, JSON.stringify(configs)]);
 }

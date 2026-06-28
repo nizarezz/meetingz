@@ -6,7 +6,6 @@ import { usersApi } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Loader2, UserCheck, Mail, UserPlus, X } from "lucide-react";
-import { useAuth } from "@/components/providers/auth-provider";
 
 interface AssigneePickerProps {
   value: string;
@@ -15,13 +14,13 @@ interface AssigneePickerProps {
 }
 
 export function AssigneePicker({ value, onChange, onInvite }: AssigneePickerProps) {
-  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState(value);
   const [debounced, setDebounced] = useState("");
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setInput(value);
   }, [value]);
 

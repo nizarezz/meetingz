@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { Plus, Search, Calendar, Clock, Users, MoreVertical, Mic, CheckCircle, FileEdit } from "lucide-react";
+import { Plus, Search, Calendar, Clock, MoreVertical, Mic, CheckCircle, FileEdit } from "lucide-react";
 import { format } from "date-fns";
 import { useAuth } from "@/components/providers/auth-provider";
 import { ADMIN_ROLES } from "@/lib/types";
@@ -48,7 +48,7 @@ export default function MeetingsPage() {
     { channel: "meetings-list", table: "meetings", events: ["*"], queryKeys: [["meetings"]] },
   ]);
 
-  const rawMeetings = data?.data ?? [];
+  const rawMeetings = useMemo(() => data?.data ?? [], [data]);
 
   const filtered = useMemo(() => {
     return rawMeetings.filter((m) => {
@@ -263,7 +263,7 @@ export default function MeetingsPage() {
                 <div className="flex items-center gap-4 shrink-0 ml-4">
                   {m.participants && m.participants.length > 0 && (
                     <div className="hidden sm:flex -space-x-3">
-                      {m.participants.slice(0, 3).map((p, i) => (
+                      {m.participants.slice(0, 3).map((p) => (
                         <div
                           key={p.id}
                           className="w-9 h-9 rounded-full border-2 border-surface bg-primary-container flex items-center justify-center text-xs font-bold text-on-primary-container"

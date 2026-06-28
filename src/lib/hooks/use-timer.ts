@@ -35,10 +35,14 @@ export function computeElapsed(data: TimerData) {
 export function useElapsedTime(data: TimerData | undefined | null) {
   const [elapsed, setElapsed] = useState(() => computeElapsed(data ?? {}));
   const dataRef = useRef(data);
-  dataRef.current = data;
+
+  useEffect(() => {
+    dataRef.current = data;
+  });
 
   useEffect(() => {
     if (!data?.is_timer_running) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setElapsed(computeElapsed(data ?? {}));
       return;
     }
@@ -46,6 +50,7 @@ export function useElapsedTime(data: TimerData | undefined | null) {
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.is_timer_running]);
 
   return elapsed;

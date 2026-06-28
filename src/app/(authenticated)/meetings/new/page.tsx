@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, X, Plus, GripVertical, Timer, Search as SearchIcon, Info, Calendar, Clock, Users, Mail, ListChecks } from "lucide-react";
+import { Loader2, X, Plus, GripVertical, Timer, Search as SearchIcon, Info, Users, Mail, ListChecks } from "lucide-react";
 import type { AgendaItem } from "@/lib/types";
 import { ScheduleCreateEditor } from "@/components/schedule-editor";
 
@@ -33,14 +33,7 @@ const meetingSchema = z.object({
 
 type MeetingFormData = z.infer<typeof meetingSchema>;
 
-const DURATION_OPTIONS = [
-  { label: "15 minutes", value: "15" },
-  { label: "30 minutes", value: "30" },
-  { label: "45 minutes", value: "45" },
-  { label: "1 hour", value: "60" },
-  { label: "1.5 hours", value: "90" },
-  { label: "2 hours", value: "120" },
-];
+
 
 export default function NewMeetingPage() {
   const router = useRouter();
@@ -85,7 +78,7 @@ export default function NewMeetingPage() {
   const [guestEmails, setGuestEmails] = useState<string[]>([]);
   const [userSearch, setUserSearch] = useState("");
 
-  const users = usersData?.data ?? [];
+  const users = useMemo(() => usersData?.data ?? [], [usersData]);
 
   const filteredUsers = useMemo(() => {
     if (!userSearch) return users.filter((u) => !participantIds.includes(u.id));
@@ -122,14 +115,6 @@ export default function NewMeetingPage() {
     );
   }
 
-  function moveAgendaItem(from: number, to: number) {
-    if (to < 0 || to >= agendaItems.length) return;
-    const items = [...agendaItems];
-    const [moved] = items.splice(from, 1);
-    items.splice(to, 0, moved);
-    setAgendaItems(items);
-  }
-
   function toggleParticipant(userId: string) {
     setParticipantIds((prev) =>
       prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId],
@@ -155,6 +140,7 @@ export default function NewMeetingPage() {
   const todayStr = useMemo(() => now.toISOString().slice(0, 10), [now]);
   const nowTimeStr = useMemo(() => now.toTimeString().slice(0, 5), [now]);
 
+  // eslint-disable-next-line react-hooks/incompatible-library
   const selectedDate = watch("date");
   const timeMin = selectedDate === todayStr ? nowTimeStr : undefined;
 
