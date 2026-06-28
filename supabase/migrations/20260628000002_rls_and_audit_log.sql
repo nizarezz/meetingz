@@ -8,14 +8,14 @@
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.user_team_id() RETURNS uuid AS $$
   SELECT team_id FROM public.users WHERE id = auth.uid() AND deleted_at IS NULL;
-$$ LANGUAGE sql STABLE;
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
 
 -- ============================================================
 -- Helper: role for the requesting user
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.user_role() RETURNS text AS $$
   SELECT role FROM public.users WHERE id = auth.uid() AND deleted_at IS NULL;
-$$ LANGUAGE sql STABLE;
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
 
 -- ============================================================
 -- 1. departments
