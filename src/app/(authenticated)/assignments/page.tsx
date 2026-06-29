@@ -3,22 +3,55 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { UseMutateFunction } from "@tanstack/react-query";
 import { useAuth } from "@/components/providers/auth-provider";
 import { actionItemsApi } from "@/lib/api";
+import type { ActionItemWithMeeting } from "@/lib/api/action-items";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CheckSquare, ExternalLink, Calendar } from "lucide-react";
+import { CheckSquare, ExternalLink, Calendar, Ban, Loader2 } from "lucide-react";
 import { format } from "date-fns";
+import { toast } from "sonner";
+import { getErrorMsg } from "@/lib/utils";
+import { ADMIN_ROLES } from "@/lib/types";
+import type { UserRole } from "@/lib/types";
+
+type Status = "pending" | "in_progress" | "overdue" | "done" | "blocked";
+
+const STATUS_BADGE: Record<Status, "secondary" | "default" | "destructive" | "outline"> = {
+  pending: "secondary",
+  in_progress: "default",
+  overdue: "destructive",
+  done: "default",
+  blocked: "destructive",
+};
+
+const SORT_ORDER: Record<Status, number> = {
+  overdue: 0,
+  pending: 1,
+  in_progress: 1,
+  done: 2,
+  blocked: 3,
+};
+
+function statusFromItem(item: ActionItemWithMeeting): Status {
+  if (item.status === "blocked") return "blocked";
+  if (item.status === "done" || item.done) return "done";
+  if (item.status === "overdue") return "overdue";
+  if (item.status === "in_progress") return "in_progress";
+  if (item.due_date && !item.done && new Date(item.due_date) < new Date()) return "overdue";
+  return "pending";
+}
 
 export default function AssignmentsPage() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const queryClient = useQueryClient();
   const myEmail = user?.email ?? "";
+  const isAdmin = ADMIN_ROLES.includes(role as UserRole);
 
   const [emailFilter, setEmailFilter] = useState(myEmail);
   const [submittedEmail, setSubmittedEmail] = useState(myEmail);
@@ -37,16 +70,31 @@ export default function AssignmentsPage() {
     enabled: !!submittedEmail,
   });
 
-  const toggleMutation = useMutation({
-    mutationFn: ({ id, done }: { id: string; done: boolean }) =>
-      actionItemsApi.update(id, { done }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["action_items"] }),
+  const markDoneMutation = useMutation({
+    mutationFn: (id: string) => actionItemsApi.markDone(id),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["action_items"] }); toast.success("Marked done"); },
+    onError: async (e) => toast.error(await getErrorMsg(e)),
   });
 
-  const doneItems = items?.data?.filter((i) => i.done) ?? [];
-  const pendingItems = items?.data?.filter((i) => !i.done) ?? [];
-  const now = new Date(); const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const overdueItems = pendingItems.filter((i) => i.due_date && new Date(i.due_date) < today);
+  const blockMutation = useMutation({
+    mutationFn: (id: string) => actionItemsApi.block(id),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["action_items"] }); toast.success("Assignment blocked"); },
+    onError: async (e) => toast.error(await getErrorMsg(e)),
+  });
+
+  const sorted = [...(items?.data ?? [])].sort((a, b) => {
+    const sa = SORT_ORDER[statusFromItem(a)];
+    const sb = SORT_ORDER[statusFromItem(b)];
+    if (sa !== sb) return sa - sb;
+    return new Date(b.assigned_at ?? b.due_date ?? 0).getTime() - new Date(a.assigned_at ?? a.due_date ?? 0).getTime();
+  });
+
+  const grouped = sorted.reduce((acc, item) => {
+    const s = statusFromItem(item);
+    if (!acc[s]) acc[s] = [];
+    acc[s].push(item);
+    return acc;
+  }, {} as Record<Status, ActionItemWithMeeting[]>);
 
   return (
     <div className="space-y-8">
@@ -68,21 +116,11 @@ export default function AssignmentsPage() {
             placeholder="Filter by email"
           />
         </div>
-        <Button
-          size="sm"
-          className="h-9"
-          onClick={() => setSubmittedEmail(emailFilter)}
-          disabled={!emailFilter.trim()}
-        >
+        <Button size="sm" className="h-9" onClick={() => setSubmittedEmail(emailFilter)} disabled={!emailFilter.trim()}>
           Search
         </Button>
         {emailFilter !== myEmail && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-9"
-            onClick={() => { setEmailFilter(myEmail); setSubmittedEmail(myEmail); }}
-          >
+          <Button variant="ghost" size="sm" className="h-9" onClick={() => { setEmailFilter(myEmail); setSubmittedEmail(myEmail); }}>
             My items
           </Button>
         )}
@@ -102,46 +140,43 @@ export default function AssignmentsPage() {
             </div>
           ))}
         </div>
-      ) : items?.data && items.data.length === 0 ? (
+      ) : sorted.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-16 text-center">
           <CheckSquare className="h-12 w-12 text-muted-foreground/40" />
           <p className="text-muted-foreground">No action items found for this email</p>
         </div>
       ) : (
         <div className="space-y-8">
-          {overdueItems.length > 0 && (
-            <section>
-              <h2 className="mb-3 font-display text-lg text-destructive">Overdue ({overdueItems.length})</h2>
-              <div className="space-y-3">
-                {overdueItems.map((item) => (
-                  <ItemCard key={item.id} item={item} toggleMutation={toggleMutation} />
-                ))}
-              </div>
-            </section>
+          {grouped.overdue?.length > 0 && (
+            <Section title="Overdue" count={grouped.overdue.length} variant="destructive">
+              {grouped.overdue.map((item) => (
+                <ItemCard key={item.id} item={item} isAdmin={isAdmin} myId={user?.id ?? ""} onMarkDone={markDoneMutation.mutate} onBlock={blockMutation.mutate} isPending={markDoneMutation.isPending || blockMutation.isPending} />
+              ))}
+            </Section>
           )}
 
-          <section>
-            <h2 className="mb-3 font-display text-lg">Pending ({pendingItems.length})</h2>
-            {pendingItems.length === 0 ? (
-              <p className="text-sm text-muted-foreground">All caught up!</p>
-            ) : (
-              <div className="space-y-3">
-                {pendingItems.map((item) => (
-                  <ItemCard key={item.id} item={item} toggleMutation={toggleMutation} />
-                ))}
-              </div>
-            )}
-          </section>
+          {((grouped.pending?.length ?? 0) + (grouped.in_progress?.length ?? 0)) > 0 && (
+            <Section title="Active" count={(grouped.pending?.length ?? 0) + (grouped.in_progress?.length ?? 0)}>
+              {[...(grouped.pending ?? []), ...(grouped.in_progress ?? [])].map((item) => (
+                <ItemCard key={item.id} item={item} isAdmin={isAdmin} myId={user?.id ?? ""} onMarkDone={markDoneMutation.mutate} onBlock={blockMutation.mutate} isPending={markDoneMutation.isPending || blockMutation.isPending} />
+              ))}
+            </Section>
+          )}
 
-          {doneItems.length > 0 && (
-            <section>
-              <h2 className="mb-3 font-display text-lg text-muted-foreground">Done ({doneItems.length})</h2>
-              <div className="space-y-3">
-                {doneItems.map((item) => (
-                  <ItemCard key={item.id} item={item} toggleMutation={toggleMutation} />
-                ))}
-              </div>
-            </section>
+          {grouped.done?.length > 0 && (
+            <Section title="Done" count={grouped.done.length} muted>
+              {grouped.done.map((item) => (
+                <ItemCard key={item.id} item={item} isAdmin={isAdmin} myId={user?.id ?? ""} onMarkDone={markDoneMutation.mutate} onBlock={blockMutation.mutate} isPending={markDoneMutation.isPending || blockMutation.isPending} />
+              ))}
+            </Section>
+          )}
+
+          {grouped.blocked?.length > 0 && (
+            <Section title="Blocked" count={grouped.blocked.length} muted>
+              {grouped.blocked.map((item) => (
+                <ItemCard key={item.id} item={item} isAdmin={isAdmin} myId={user?.id ?? ""} onMarkDone={markDoneMutation.mutate} onBlock={blockMutation.mutate} isPending={markDoneMutation.isPending || blockMutation.isPending} />
+              ))}
+            </Section>
           )}
         </div>
       )}
@@ -149,32 +184,47 @@ export default function AssignmentsPage() {
   );
 }
 
+function Section({ title, count, variant, muted, children }: { title: string; count: number; variant?: "destructive"; muted?: boolean; children: React.ReactNode }) {
+  return (
+    <section>
+      <h2 className={`mb-3 font-display text-lg ${variant === "destructive" ? "text-destructive" : muted ? "text-muted-foreground" : ""}`}>
+        {title} ({count})
+      </h2>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
 function ItemCard({
   item,
-  toggleMutation,
+  isAdmin,
+  myId,
+  onMarkDone,
+  onBlock,
+  isPending,
 }: {
-  item: Awaited<ReturnType<typeof actionItemsApi.list>>["data"][number];
-  toggleMutation: ReturnType<typeof useMutation<unknown, Error, { id: string; done: boolean }>>;
+  item: ActionItemWithMeeting;
+  isAdmin: boolean;
+  myId: string;
+  onMarkDone: (id: string) => void;
+  onBlock: (id: string) => void;
+  isPending: boolean;
 }) {
-  const isOverdue = item.due_date && !item.done && new Date(item.due_date) < new Date();
+  const status = statusFromItem(item);
   const meeting = item.meetings as { title: string; scheduled_at: string | null } | undefined;
+  const isAssignee = item.assignee_id === myId;
+  const canMarkDone = isAssignee && (status === "pending" || status === "in_progress" || status === "overdue");
+  const canBlock = isAdmin && status !== "done" && status !== "blocked";
 
   return (
-    <Card className={`transition ${item.done ? "opacity-60" : ""}`}>
+    <Card className={status === "done" || status === "blocked" ? "opacity-60" : ""}>
       <CardContent className="flex items-start gap-4 py-4">
-        <Checkbox
-          checked={item.done}
-          onCheckedChange={(checked) =>
-            toggleMutation.mutate({ id: item.id!, done: checked as boolean })
-          }
-          className="mt-1"
-        />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <p className={`font-medium ${item.done ? "line-through text-muted-foreground" : ""}`}>
+            <p className={`font-medium ${status === "done" ? "line-through text-muted-foreground" : ""}`}>
               {item.text}
             </p>
-            {isOverdue && <Badge variant="destructive" className="shrink-0 text-[10px]">Overdue</Badge>}
+            <StatusBadge status={status} />
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             {meeting && (
@@ -189,12 +239,43 @@ function ItemCard({
                 {format(new Date(item.due_date), "MMM d, yyyy")}
               </span>
             )}
-            {item.assignee_email && (
-              <span className="text-[10px]">{item.assignee_email}</span>
+            {item.assignee_email && !isAssignee && (
+              <span>{item.assignee_email}</span>
+            )}
+            {status === "blocked" && item.blocked_by && (
+              <span className="flex items-center gap-1 text-destructive">
+                <Ban className="h-3 w-3" />
+                Removed by {item.blocked_by.slice(0, 8)}
+              </span>
             )}
           </div>
         </div>
+
+        {canMarkDone && (
+          <Button size="sm" variant="outline" className="shrink-0 gap-1.5" onClick={() => onMarkDone(item.id!)} disabled={isPending}>
+            {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckSquare className="h-3 w-3" />}
+            Mark done
+          </Button>
+        )}
+
+        {canBlock && (
+          <Button size="sm" variant="outline" className="shrink-0 gap-1.5 text-destructive hover:text-destructive" onClick={() => onBlock(item.id!)} disabled={isPending}>
+            {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3" />}
+            Block
+          </Button>
+        )}
       </CardContent>
     </Card>
   );
+}
+
+function StatusBadge({ status }: { status: Status }) {
+  const label: Record<Status, string> = {
+    pending: "Pending",
+    in_progress: "In Progress",
+    overdue: "Overdue",
+    done: "Done",
+    blocked: "Blocked",
+  };
+  return <Badge variant={STATUS_BADGE[status]} className="shrink-0 text-[10px]">{label[status]}</Badge>;
 }

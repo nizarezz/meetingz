@@ -27,7 +27,7 @@ Deno.serve(async (req: Request) => {
 
       let query = svc
         .from("action_items")
-        .select("*, meetings!inner(title, scheduled_at)", { count: "exact" })
+        .select("*, meetings!inner(title, scheduled_at, status)", { count: "exact" })
         .eq("team_id", caller.team_id)
         .is("meetings.deleted_at", null);
 
@@ -46,7 +46,7 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET" && id) {
       const { data, error } = await svc
         .from("action_items")
-        .select("*, meetings!inner(title, scheduled_at)")
+        .select("*, meetings!inner(title, scheduled_at, status)")
         .eq("id", id)
         .eq("team_id", caller.team_id)
         .single();
@@ -182,9 +182,6 @@ Deno.serve(async (req: Request) => {
         if (existing.status === "done" || existing.status === "blocked") {
           return err(`Cannot mark a ${existing.status} item as done`, 409);
         }
-        if (existing.meetings?.status === "logged") {
-          return err("Meeting is logged and cannot be modified", 409);
-        }
 
         const { error: updateErr } = await svc
           .from("action_items")
@@ -231,7 +228,7 @@ Deno.serve(async (req: Request) => {
 
         const { data: updated } = await svc
           .from("action_items")
-          .select("*, meetings!inner(title, scheduled_at)")
+          .select("*, meetings!inner(title, scheduled_at, status)")
           .eq("id", id)
           .single();
 
@@ -241,7 +238,7 @@ Deno.serve(async (req: Request) => {
       if (action === "block") {
         requireRole(caller, ADMIN_ROLES);
 
-        if (caller.role !== "super_admin") {
+        if (caller.role !== "super_admin" && existing.assignee_id) {
           const { data: assignee } = await svc
             .from("users")
             .select("department")
@@ -268,7 +265,7 @@ Deno.serve(async (req: Request) => {
 
         if (updateErr) return err(updateErr.message);
 
-        const notifyIds: string[] = [existing.assigned_by];
+        const notifyIds: string[] = [existing.assigned_by].filter(Boolean);
         if (existing.assignee_id && !notifyIds.includes(existing.assignee_id)) {
           notifyIds.push(existing.assignee_id);
         }
@@ -289,7 +286,7 @@ Deno.serve(async (req: Request) => {
 
         const { data: updated } = await svc
           .from("action_items")
-          .select("*, meetings!inner(title, scheduled_at)")
+          .select("*, meetings!inner(title, scheduled_at, status)")
           .eq("id", id)
           .single();
 
