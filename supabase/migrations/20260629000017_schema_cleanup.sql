@@ -88,3 +88,23 @@ DROP TRIGGER IF EXISTS action_items_sync_done_status ON action_items CASCADE;
 DROP TRIGGER IF EXISTS action_items_sync_done ON action_items CASCADE;
 DROP FUNCTION IF EXISTS sync_action_item_done_status;
 ALTER TABLE action_items DROP COLUMN IF EXISTS done;
+
+-- 7. Fix blocked_by: add missing foreign key reference to users(id)
+--    Also drop+recreate old done-dependent indexes with status equivalents
+ALTER TABLE action_items ADD CONSTRAINT fk_action_items_blocked_by
+  FOREIGN KEY (blocked_by) REFERENCES users(id) DEFERRABLE INITIALLY DEFERRED;
+
+DROP INDEX IF EXISTS idx_action_items_team_id_assignee_id_done;
+DROP INDEX IF EXISTS idx_action_items_due_date;
+DROP INDEX IF EXISTS idx_action_items_team_id_done;
+
+CREATE INDEX IF NOT EXISTS idx_action_items_team_id_assignee_id_status
+  ON action_items(team_id, assignee_id, status)
+  WHERE assignee_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_action_items_due_date_pending
+  ON action_items(due_date)
+  WHERE due_date IS NOT NULL AND status <> 'done';
+
+CREATE INDEX IF NOT EXISTS idx_action_items_team_id_status
+  ON action_items(team_id, status);
