@@ -50,13 +50,14 @@ Deno.serve(async (req: Request) => {
 
       if (meetingErr || !meeting) return err("Meeting not found", 404);
 
-      const { data: participant } = await caller.client
-        .from("meeting_participants")
+      const { data: existing } = await svc
+        .from("comments")
         .select("id")
         .eq("meeting_id", meeting_id)
         .eq("user_id", caller.id)
         .maybeSingle();
-      if (!participant) return err("Only meeting participants can comment", 403);
+
+      if (existing) return err("You can only add one comment per meeting", 409);
 
       const { data: comment, error: insertErr } = await svc
         .from("comments")

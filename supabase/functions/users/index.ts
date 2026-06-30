@@ -98,6 +98,32 @@ Deno.serve(async (req: Request) => {
       return ok(data);
     }
 
+    if (req.method === "PATCH" && id && action === "role") {
+      requireRole(caller, SUPER_ADMIN_ROLES);
+
+      const body = await req.json();
+      const { role: newRole } = body;
+      const VALID_ROLES = ["member", "dept_admin", "super_admin"];
+
+      if (!VALID_ROLES.includes(newRole)) {
+        return err(`Role must be one of: ${VALID_ROLES.join(", ")}`);
+      }
+
+      const { data, error } = await svc
+        .from("users")
+        .update({ role: newRole })
+        .eq("id", id)
+        .eq("team_id", caller.team_id)
+        .select("id, email, name, role, department, is_approved")
+        .single();
+
+      if (error) return err(error.message, 404);
+
+      await svc.auth.admin.updateUserById(id, { user_metadata: { role: newRole } });
+      await audit(caller.id, caller.team_id, "user_role_change", "user", id, { new_role: newRole });
+      return ok(data);
+    }
+
     if (req.method === "PATCH" && id && action === "deactivate") {
       requireRole(caller, ADMIN_ROLES);
 
@@ -167,20 +193,36 @@ Deno.serve(async (req: Request) => {
         return ok(data);
       }
 
-      const tempPassword = crypto.randomUUID().slice(0, 12) + "Tg1!";
-      const { data: newUser, error: inviteErr } = await svc.auth.admin.createUser({
-        email,
-        password: tempPassword,
-        email_confirm: true,
-      });
+      let authUserId: string | null = null;
+      let tempPassword = "";
 
-      if (inviteErr) return err(inviteErr.message);
-      if (!newUser?.user?.id) return err("Failed to create user");
+      // Check if user already exists in auth.users
+      const { data: authUsers } = await svc.auth.admin.listUsers();
+      const existingAuthUser = authUsers?.users?.find((u: { email?: string; id: string }) => u.email === email);
+
+      if (existingAuthUser) {
+        authUserId = existingAuthUser.id;
+      } else {
+        tempPassword = crypto.randomUUID().slice(0, 12) + "Tg1!";
+        const { data: newUser, error: inviteErr } = await svc.auth.admin.createUser({
+          email,
+          password: tempPassword,
+          email_confirm: true,
+        });
+
+        if (inviteErr) return err(inviteErr.message);
+        if (!newUser?.user?.id) return err("Failed to create user");
+        authUserId = newUser.user.id;
+
+        await svc.auth.admin.updateUserById(authUserId, {
+          user_metadata: { role, name: displayName, department },
+        });
+      }
 
       const { data: profile, error: profileErr } = await svc
         .from("users")
-        .insert({
-          id: newUser.user.id,
+        .upsert({
+          id: authUserId,
           email,
           name: displayName,
           department: department ?? null,
@@ -191,13 +233,7 @@ Deno.serve(async (req: Request) => {
         .select("id, email, name, role, department, is_approved")
         .single();
 
-      if (profileErr) {
-        return err(profileErr.message);
-      }
-
-      await svc.auth.admin.updateUserById(newUser.user.id, {
-        user_metadata: { role, name: displayName, department },
-      });
+      if (profileErr) return err(profileErr.message);
 
       const { data: team } = await caller.client
         .from("teams")
@@ -212,7 +248,7 @@ Deno.serve(async (req: Request) => {
           teamName: team?.name ?? "the team",
           appUrl: baseUrl,
           email,
-          password: tempPassword,
+          password: tempPassword || undefined,
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Unknown error";

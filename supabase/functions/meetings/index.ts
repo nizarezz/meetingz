@@ -95,7 +95,9 @@ Deno.serve(async (req: Request) => {
           scheduled_duration, actual_duration, status,
           scheduled_at, created_at,
           created_by, facilitator_id,
-          share_token,
+          share_token, timer_open_to_all,
+          facilitator:users!facilitator_id(name, email),
+          creator:users!created_by(name, email),
           meeting_participants (
             id, user_id, role, department,
             users ( id, name, email )
@@ -123,12 +125,15 @@ Deno.serve(async (req: Request) => {
           scheduled_duration, actual_duration, status,
           scheduled_at, created_at,
           created_by, facilitator_id, team_id,
-          share_token, deleted_at, updated_at,
+          share_token, deleted_at, updated_at, timer_open_to_all,
+          report_snapshot,
           meeting_participants (
             id, user_id, role, department, notified_at,
             users ( id, name, email, department )
           ),
-          outcomes ( id, meeting_id, primary_outcome, notes, logged_by, team_id, created_at ),
+          facilitator:users!facilitator_id(name, email),
+          creator:users!created_by(name, email),
+          outcomes ( id, meeting_id, primary_outcome, logged_by, team_id, created_at ),
           agenda_items ( title, duration, assignee_email, presenter, notes )
         `)
         .eq("id", id)
@@ -221,19 +226,24 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "PATCH" && id) {
-      requireRole(caller, ADMIN_ROLES);
       checkRateLimit(`meetings:update:${caller.team_id}`, 30, "meeting updates");
 
-      const { data: meetingOwner } = await caller.client
+      const { data: meeting } = await caller.client
         .from("meetings")
-        .select("created_by")
+        .select("created_by, facilitator_id, status, timer_open_to_all")
         .eq("id", id)
         .single();
-      if (!meetingOwner) return err("Meeting not found", 404);
-      const adminRoles = [...ADMIN_ROLES, ...SUPER_ADMIN_ROLES];
-      const isAdmin = adminRoles.includes(caller.role as any);
-      if (!isAdmin && meetingOwner.created_by !== caller.id) {
-        return err("Forbidden", 403);
+      if (!meeting) return err("Meeting not found", 404);
+
+      if (meeting.status === "completed" || meeting.status === "cancelled") {
+        return err("Cannot edit a meeting that has ended", 409);
+      }
+
+      const isHost = meeting.facilitator_id === caller.id || meeting.created_by === caller.id;
+      const isSuperAdmin = SUPER_ADMIN_ROLES.includes(caller.role as any);
+
+      if (!isHost && !isSuperAdmin) {
+        return err("Only the host or a super admin can edit this meeting", 403);
       }
 
       const body = await req.json().catch(() => ({}));
@@ -257,12 +267,19 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      // --- Facilitator change guard: cannot self-promote ---
+      if (parsed.facilitator_id && parsed.facilitator_id === caller.id) {
+        if (meeting.created_by !== caller.id && meeting.facilitator_id !== caller.id) {
+          return err("Cannot self-promote into facilitator seat", 403);
+        }
+      }
+
       // --- Log action: freeze meeting, build snapshot, queue digest emails ---
       if (parsed.status === "logged") {
         const svc = serviceClient();
 
         const [outcomesRes, notesRes, actionItemsRes, commentsRes] = await Promise.all([
-          svc.from("outcomes").select("id, primary_outcome, notes, created_at").eq("meeting_id", id),
+          svc.from("outcomes").select("id, primary_outcome, created_at").eq("meeting_id", id),
           svc.from("outcome_notes").select("text, sort_order, source, created_at, created_by_user:users!created_by(name)").eq("meeting_id", id).order("sort_order", { ascending: true }),
           svc.from("action_items").select("id, text, status, priority, assignee_id, assignee_email, due_date, created_at, meetings!inner(title)").eq("meeting_id", id),
           svc.from("comments").select("id, user_id, text, created_at, users!comments_user_id_fkey(name), pulled_to_outcome").eq("meeting_id", id).order("created_at", { ascending: true }),
@@ -396,6 +413,29 @@ Deno.serve(async (req: Request) => {
         .select("title, duration, assignee_email, presenter, notes")
         .eq("meeting_id", id)
         .order("sort_order", { ascending: true });
+
+      if (parsed.status === "active") {
+        const svc = serviceClient();
+        const { data: participants } = await svc
+          .from("meeting_participants")
+          .select("user_id")
+          .eq("meeting_id", id);
+
+        const userIds = new Set<string>([caller.id]);
+        for (const p of (participants ?? []) as { user_id: string }[]) {
+          userIds.add(p.user_id);
+        }
+
+        await svc.from("notifications").insert(
+          Array.from(userIds).map((uid) => ({
+            user_id: uid,
+            type: "meeting_started",
+            title: `Meeting started: ${data.title}`,
+            body: `${data.department} · ${data.meeting_type}`,
+            data: { meeting_id: id, started_by: caller.id },
+          }))
+        );
+      }
 
       if (parsed.status === "completed") {
         await audit(caller.id, caller.team_id, "meeting_complete", "meeting", id, { title: data.title });

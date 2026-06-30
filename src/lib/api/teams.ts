@@ -8,6 +8,7 @@ export const teamsApi = {
 
 export const departmentsApi = {
   list: () => api().get("departments").json<string[]>(),
+  create: (name: string) => api().post("departments", { json: { name } }).json<{ name: string }>(),
 };
 
 export const setupApi = {

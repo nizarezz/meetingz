@@ -14,12 +14,13 @@ Deno.serve(async (req: Request) => {
     const action = url.searchParams.get("action");
     const caller = await resolveCaller(req);
     const svc = serviceClient();
+    const isAdmin = caller.role === "super_admin" || caller.role === "dept_admin";
 
     // --- LIST ---
     if (req.method === "GET" && !id) {
-      requireRole(caller, ADMIN_ROLES);
       const assigneeId = url.searchParams.get("assignee_id");
       const assigneeEmail = url.searchParams.get("assignee_email");
+      const assignedBy = url.searchParams.get("assigned_by");
       const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
       const perPage = Math.max(1, Math.min(100, parseInt(url.searchParams.get("per_page") ?? "50", 10)));
       const from = (page - 1) * perPage;
@@ -27,12 +28,20 @@ Deno.serve(async (req: Request) => {
 
       let query = svc
         .from("action_items")
-        .select("*, meetings!inner(title, scheduled_at, status)", { count: "exact" })
+        .select("*, meetings!inner(title, scheduled_at, status), assignee:users!assignee_id(name, email)", { count: "exact" })
         .eq("team_id", caller.team_id)
         .is("meetings.deleted_at", null);
 
-      if (assigneeId) query = query.eq("assignee_id", assigneeId);
-      if (assigneeEmail) query = query.eq("assignee_email", assigneeEmail);
+      if (isAdmin) {
+        if (assigneeId) query = query.eq("assignee_id", assigneeId);
+        if (assigneeEmail) query = query.eq("assignee_email", assigneeEmail);
+        if (assignedBy) query = query.eq("assigned_by", assignedBy);
+      } else {
+        query = query.or(`assignee_id.eq.${caller.id},assigned_by.eq.${caller.id}`);
+        if (assigneeId && assigneeId === caller.id) query = query.eq("assignee_id", assigneeId);
+        if (assigneeEmail) query = query.eq("assignee_email", assigneeEmail);
+        if (assignedBy && assignedBy === caller.id) query = query.eq("assigned_by", assignedBy);
+      }
 
       const { data, error, count } = await query
         .order("created_at", { ascending: false })
@@ -44,12 +53,17 @@ Deno.serve(async (req: Request) => {
 
     // --- GET single ---
     if (req.method === "GET" && id) {
-      const { data, error } = await svc
+      let query = svc
         .from("action_items")
-        .select("*, meetings!inner(title, scheduled_at, status)")
+        .select("*, meetings!inner(title, scheduled_at, status), assignee:users!assignee_id(name, email)")
         .eq("id", id)
-        .eq("team_id", caller.team_id)
-        .single();
+        .eq("team_id", caller.team_id);
+
+      if (!isAdmin) {
+        query = query.or(`assignee_id.eq.${caller.id},assigned_by.eq.${caller.id}`);
+      }
+
+      const { data, error } = await query.single();
 
       if (error || !data) return err("Not found", 404);
       return ok(data);
@@ -228,7 +242,7 @@ Deno.serve(async (req: Request) => {
 
         const { data: updated } = await svc
           .from("action_items")
-          .select("*, meetings!inner(title, scheduled_at, status)")
+          .select("*, meetings!inner(title, scheduled_at, status), assignee:users!assignee_id(name, email)")
           .eq("id", id)
           .single();
 
@@ -286,7 +300,7 @@ Deno.serve(async (req: Request) => {
 
         const { data: updated } = await svc
           .from("action_items")
-          .select("*, meetings!inner(title, scheduled_at, status)")
+          .select("*, meetings!inner(title, scheduled_at, status), assignee:users!assignee_id(name, email)")
           .eq("id", id)
           .single();
 

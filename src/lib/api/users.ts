@@ -16,6 +16,7 @@ export const usersApi = {
     api().patch(`users/${id}`, { json: patch }).json<ApiUser>(),
   approve: (id: string) => api().patch(`users/${id}/approve`).json<ApiUser>(),
   deactivate: (id: string) => api().patch(`users/${id}/deactivate`).json<ApiUser>(),
+  changeRole: (id: string, role: UserRole) => api().patch(`users/${id}/role`, { json: { role } }).json<ApiUser>(),
   invite: (input: { email: string; name?: string; department?: string; role?: UserRole }) =>
     api().post("users/invite", { json: input }).json<ApiUser>(),
 };

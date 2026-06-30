@@ -29,4 +29,10 @@ export const outcomeNotesApi = {
 
   create: (input: CreateOutcomeNoteInput) =>
     api().post("outcome-notes", { json: input }).json<OutcomeNote>(),
+
+  update: (id: string, text: string) =>
+    api().patch(`outcome-notes/${id}`, { json: { text } }).json<OutcomeNote>(),
+
+  remove: (id: string) =>
+    api().delete(`outcome-notes/${id}`).json<{ deleted: boolean }>(),
 };

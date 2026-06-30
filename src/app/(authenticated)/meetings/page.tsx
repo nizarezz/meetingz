@@ -1,20 +1,39 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useMeetings } from "@/lib/hooks/use-meetings";
+import { meetingsApi } from "@/lib/api";
 import { useRealtimeInvalidation } from "@/lib/hooks/use-realtime";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { Plus, Search, Calendar, Clock, MoreVertical, Mic, CheckCircle, FileEdit } from "lucide-react";
+import { Plus, Search, Calendar, Clock, MoreVertical, Mic, CheckCircle, FileEdit, FileText, QrCode, Share2, ExternalLink, Download } from "lucide-react";
 import { format } from "date-fns";
 import { useAuth } from "@/components/providers/auth-provider";
 import { ADMIN_ROLES } from "@/lib/types";
 import type { UserRole } from "@/lib/types";
+import QRCode from "qrcode";
+import { toast } from "sonner";
 
 type Tab = "upcoming" | "live" | "past" | "drafts";
+
+function googleCalUrl(m: { title: string; scheduled_at: string; scheduled_duration?: number }): string {
+  const start = new Date(m.scheduled_at);
+  const end = new Date(start.getTime() + (m.scheduled_duration ?? 3600) * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const fmtLocal = (d: Date) =>
+    `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: m.title,
+    dates: `${fmtLocal(start)}/${fmtLocal(end)}`,
+  });
+  return `https://calendar.google.com/calendar/render?${params}`;
+}
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "upcoming", label: "Upcoming" },
@@ -88,6 +107,95 @@ export default function MeetingsPage() {
     return counts;
   }, [rawMeetings]);
 
+  const [qrOpen, setQrOpen] = useState(false);
+  const [qrUrl, setQrUrl] = useState("");
+
+  async function exportPastMeetings() {
+    const past = rawMeetings.filter((m) => m.status === "completed" || m.status === "logged");
+    if (past.length === 0) return toast("No past meetings to export");
+
+    const detailed = await Promise.all(past.map((m) => meetingsApi.get(m.id).catch(() => null)));
+    const lines: string[] = [];
+    lines.push("# Meeting Reports\n");
+    lines.push(`> Generated on ${format(new Date(), "MMMM d, yyyy h:mm a")}\n`);
+    lines.push(`> Total meetings: ${past.length}\n`);
+
+    for (const m of detailed) {
+      if (!m) continue;
+      lines.push(`## ${m.title}\n`);
+      lines.push(`- **Date:** ${m.scheduled_at ? format(new Date(m.scheduled_at), "MMMM d, yyyy") : "N/A"}`);
+      lines.push(`- **Time:** ${m.scheduled_at ? format(new Date(m.scheduled_at), "h:mm a") : "N/A"}`);
+      lines.push(`- **Duration:** ${m.scheduled_duration ? `${Math.round(m.scheduled_duration / 60)} min` : "N/A"}`);
+      if (m.actual_duration != null) lines.push(`- **Actual Duration:** ${Math.round(m.actual_duration / 60)} min`);
+      lines.push(`- **Status:** ${m.status}`);
+      lines.push(`- **Department:** ${m.department ?? "N/A"}`);
+      lines.push(`- **Type:** ${m.meeting_type ?? "N/A"}`);
+      if (m.facilitator?.name) lines.push(`- **Facilitator:** ${m.facilitator.name}`);
+      lines.push("");
+
+      const snap = m.report_snapshot as Record<string, unknown> | null;
+      if (snap) {
+        const outcomes = snap.outcomes as Array<Record<string, unknown>> | undefined;
+        if (outcomes?.length) {
+          lines.push("### Outcomes\n");
+          for (const o of outcomes) {
+            lines.push(`- ${(o.primary_outcome as string) ?? "N/A"} ${o.created_at ? `(${format(new Date(o.created_at as string), "MMM d, h:mm a")})` : ""}`);
+          }
+          lines.push("");
+        }
+
+        const notes = snap.notes as Array<Record<string, unknown>> | undefined;
+        if (notes?.length) {
+          lines.push("### Notes\n");
+          for (const n of notes) {
+            const author = (n.created_by_user as Record<string, unknown> | undefined)?.name as string ?? "";
+            lines.push(`- ${(n.text as string) ?? ""}${author ? ` — ${author}` : ""}`);
+          }
+          lines.push("");
+        }
+
+        const items = snap.action_items as Array<Record<string, unknown>> | undefined;
+        if (items?.length) {
+          lines.push("### Action Items\n");
+          for (const item of items) {
+            const status = (item.status as string) ?? "pending";
+            const done = item.done ? "✅" : status === "blocked" ? "🚫" : "⬜";
+            lines.push(`- ${done} ${(item.text as string) ?? ""}${item.due_date ? ` (due: ${format(new Date(item.due_date as string), "MMM d, yyyy")})` : ""}`);
+          }
+          lines.push("");
+        }
+
+        const comments = snap.comments as Array<Record<string, unknown>> | undefined;
+        if (comments?.length) {
+          lines.push("### Comments\n");
+          for (const c of comments) {
+            const name = (c.users as Record<string, unknown> | undefined)?.name as string ?? "Unknown";
+            lines.push(`- **${name}:** ${(c.text as string) ?? ""}`);
+          }
+          lines.push("");
+        }
+      }
+
+      if (m.agenda_items?.length) {
+        lines.push("### Agenda\n");
+        for (const item of m.agenda_items) {
+          lines.push(`- ${item.title}${item.duration ? ` (${Math.round(item.duration / 60)} min)` : ""}${item.presenter ? ` — ${item.presenter}` : ""}`);
+        }
+        lines.push("");
+      }
+
+      lines.push("---\n");
+    }
+
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `meeting-reports-${format(new Date(), "yyyy-MM-dd")}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast.success(`Exported ${past.length} meeting reports`);
+  }
+
   return (
     <div className="flex flex-col">
       {/* Page header */}
@@ -146,12 +254,12 @@ export default function MeetingsPage() {
             className="w-full rounded-xl border-none bg-surface pl-12 pr-4 py-3 shadow-sm placeholder:text-outline focus:ring-2 focus:ring-primary/50"
           />
         </div>
-        <Button variant="outline" size="sm" className="rounded-xl border-outline-variant/20 shadow-sm">
-          Filters
-        </Button>
-        <Button variant="outline" size="sm" className="rounded-xl border-outline-variant/20 shadow-sm">
-          Sort
-        </Button>
+        {tab === "past" && (
+          <Button variant="outline" size="sm" className="rounded-xl border-outline-variant/20 shadow-sm gap-1.5" onClick={exportPastMeetings}>
+            <Download className="h-4 w-4" />
+            Reports
+          </Button>
+        )}
       </div>
 
       {/* List */}
@@ -193,11 +301,10 @@ export default function MeetingsPage() {
             const isDraft = tab === "drafts";
             const isPast = tab === "past";
             return (
-              <Link
+              <div
                 key={m.id}
-                href={`/meetings/${m.id}`}
                 className={cn(
-                  "bg-surface rounded-xl p-6 flex items-center justify-between transition-colors cursor-pointer group",
+                  "bg-surface rounded-xl p-6 flex items-center justify-between transition-colors",
                   isLive
                     ? "shadow-sm border border-primary/20 hover:border-primary/40"
                     : isDraft
@@ -205,7 +312,7 @@ export default function MeetingsPage() {
                       : "shadow-sm border border-transparent hover:border-outline-variant/50",
                 )}
               >
-                <div className="flex items-center gap-6 min-w-0">
+                <Link href={`/meetings/${m.id}`} className="flex items-center gap-6 min-w-0 flex-1 cursor-pointer group">
                   <div className={cn(
                     "w-12 h-12 rounded-xl flex items-center justify-center shrink-0",
                     TAB_BG[tab],
@@ -247,6 +354,12 @@ export default function MeetingsPage() {
                             {format(new Date(m.scheduled_at), "h:mm a")}
                             {m.scheduled_duration && ` - ${Math.round(m.scheduled_duration / 60)}m`}
                           </span>
+                          {tab === "upcoming" && (
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                              <ExternalLink className="h-3 w-3" />
+                              Calendar
+                            </span>
+                          )}
                         </>
                       ) : (
                         <span className="flex items-center gap-1 text-outline">Needs scheduling</span>
@@ -258,7 +371,7 @@ export default function MeetingsPage() {
                       )}
                     </div>
                   </div>
-                </div>
+                </Link>
 
                 <div className="flex items-center gap-4 shrink-0 ml-4">
                   {m.participants && m.participants.length > 0 && (
@@ -283,12 +396,38 @@ export default function MeetingsPage() {
                       Join
                     </span>
                   ) : (
-                    <button className="text-muted-foreground hover:text-primary p-2 transition-colors rounded-lg hover:bg-secondary-container">
-                      <MoreVertical className="h-5 w-5" />
-                    </button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} className="text-muted-foreground hover:text-primary p-2 transition-colors rounded-lg hover:bg-secondary-container">
+                        <MoreVertical className="h-5 w-5" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {tab === "upcoming" && (
+                          <DropdownMenuItem onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.open(googleCalUrl(m as { title: string; scheduled_at: string; scheduled_duration?: number }), "_blank", "noopener"); }}>
+                            <ExternalLink className="h-4 w-4 mr-2" />
+                            Google Calendar
+                          </DropdownMenuItem>
+                        )}
+                        {tab === "upcoming" && (
+                          <DropdownMenuItem onClick={(e) => { e.preventDefault(); e.stopPropagation(); setQrUrl(googleCalUrl(m as { title: string; scheduled_at: string; scheduled_duration?: number })); setQrOpen(true); }}>
+                            <QrCode className="h-4 w-4 mr-2" />
+                            QR Code
+                          </DropdownMenuItem>
+                        )}
+                        {(m.share_token) && (
+                          <DropdownMenuItem onClick={(e) => {
+                            e.preventDefault(); e.stopPropagation();
+                            navigator.clipboard.writeText(`${window.location.origin}/live/${m.share_token}`);
+                            toast.success("Share link copied");
+                          }}>
+                            <Share2 className="h-4 w-4 mr-2" />
+                            Copy Share Link
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
                 </div>
-              </Link>
+              </div>
             );
           })
         )}
@@ -304,6 +443,35 @@ export default function MeetingsPage() {
           </Button>
         </Link>
       )}
+
+      <QrDialog open={qrOpen} onOpenChange={setQrOpen} url={qrUrl} />
     </div>
+  );
+}
+
+function QrDialog({ open, onOpenChange, url }: { open: boolean; onOpenChange: (v: boolean) => void; url: string }) {
+  const [dataUrl, setDataUrl] = useState("");
+
+  useEffect(() => {
+    if (!open || !url) { setDataUrl(""); return; }
+    QRCode.toDataURL(url, {
+      width: 280, margin: 1, color: { dark: "#4a7c59", light: "#ffffff" },
+    }).then(setDataUrl);
+  }, [open, url]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Add to Calendar</DialogTitle>
+        </DialogHeader>
+        <div className="flex justify-center py-6">
+          {dataUrl ? <img src={dataUrl} alt="QR Code" className="rounded-xl" width={280} height={280} /> : <div className="h-[280px] w-[280px] animate-pulse rounded-xl bg-muted" />}
+        </div>
+        <div className="text-center text-sm text-muted-foreground break-all px-2 font-medium">
+          {url}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

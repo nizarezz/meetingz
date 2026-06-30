@@ -86,14 +86,13 @@ export interface Outcome {
   meeting_id: string;
   primary_outcome: PrimaryOutcome;
   action_items: ActionItem[];
-  notes?: string;
   logged_by?: string;
   team_id?: string;
   created_at?: string;
 }
 
 export interface ReportSnapshot {
-  outcomes: Array<{ id: string; primary_outcome: string; notes?: string; created_at: string }>;
+  outcomes: Array<{ id: string; primary_outcome: string; created_at: string }>;
   notes: Array<{ text: string; sort_order: number; source: string; created_at: string; created_by_user?: { name: string } }>;
   action_items: Array<{ id: string; text: string; status: string; priority: string; assignee_id?: string; assignee_email?: string; due_date?: string; created_at: string }>;
   pulled_comments: Array<{ id: string; user_id: string; text: string; created_at: string; users?: { name: string } }>;
@@ -112,6 +111,8 @@ export interface Meeting {
   scheduled_duration: number;
   scheduled_at?: string | null;
   facilitator_id?: string | null;
+  facilitator?: { name: string; email: string } | null;
+  creator?: { name: string; email: string } | null;
   status: MeetingStatus;
   agenda_items: AgendaItem[];
   actual_duration?: number;
@@ -128,6 +129,7 @@ export interface Meeting {
   participants?: Participant[];
   outcomes?: Outcome | Outcome[];
   share_token?: string;
+  timer_open_to_all?: boolean;
   deleted_at?: string | null;
   logged_at?: string | null;
   logged_by?: string | null;

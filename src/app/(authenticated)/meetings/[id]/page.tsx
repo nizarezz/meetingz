@@ -15,11 +15,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useRealtimeInvalidation } from "@/lib/hooks/use-realtime";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Play, Pause, SkipForward, RotateCcw, Timer as TimerIcon, CheckSquare, Plus, Trash2, Printer, Loader2, MessageSquare, Send, Share2, FileText } from "lucide-react";
+import { ArrowLeft, Play, Pause, SkipForward, RotateCcw, Timer as TimerIcon, CheckSquare, Plus, Trash2, Printer, Loader2, MessageSquare, Send, Share2, QrCode, FileText, X } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import type { PrimaryOutcome, ActionItem, Comment as CommentType } from "@/lib/types";
@@ -27,6 +28,7 @@ import { formatDuration, getErrorMsg } from "@/lib/utils";
 import { MEETING_STATUS_BADGE, SUPER_ADMIN_ROLES } from "@/lib/types";
 import type { UserRole } from "@/lib/types";
 import { ADMIN_ROLES } from "@/lib/types";
+import QRCode from "qrcode";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function MeetingDetailPage({
@@ -48,6 +50,9 @@ export default function MeetingDetailPage({
   const addTime = useAddTime();
   const { user, role } = useAuth();
   const isAdmin = ADMIN_ROLES.includes(role as UserRole);
+  const isSuperAdmin = SUPER_ADMIN_ROLES.includes(role as UserRole);
+  const isHost = meeting?.facilitator_id === user?.id || meeting?.created_by === user?.id;
+  const canEdit = isHost || isSuperAdmin;
   const { data: currentUser } = useUser(user?.id ?? "");
   const deleteMeeting = useDeleteMeeting();
   const router = useRouter();
@@ -91,7 +96,9 @@ export default function MeetingDetailPage({
 
   const [primaryOutcome, setPrimaryOutcome] = useState<PrimaryOutcome>("Decision Made");
   const [actionItems, setActionItems] = useState<ActionItem[]>([{ text: "", assignee_email: "", due_date: "" }]);
-  const [notes, setNotes] = useState("");
+  const [showHostPicker, setShowHostPicker] = useState(false);
+  const [showQr, setShowQr] = useState(false);
+  const [hostSearch, setHostSearch] = useState("");
   useRealtimeInvalidation([
     { channel: "meeting-detail-meeting", table: "meetings", events: ["UPDATE"], filter: `id=eq.${id}`, queryKeys: [["meetings", id], ["timer", id], ["meetings"]] },
     { channel: "meeting-detail-timer", table: "meeting_timer_state", events: ["*"], filter: `meeting_id=eq.${id}`, queryKeys: [["timer", id]] },
@@ -116,6 +123,8 @@ export default function MeetingDetailPage({
     onError: async (e) => toast.error(await getErrorMsg(e)),
   });
 
+  const userComment = comments?.data?.find((c) => c.user_id === user?.id);
+
   const outcomeId = existingOutcome?.id;
 
   const { data: outcomeNotes } = useQuery({
@@ -124,47 +133,52 @@ export default function MeetingDetailPage({
     enabled: !!outcomeId,
   });
 
+  const existingNote = outcomeNotes?.find(n => n.source === "manual");
+
   const [outcomeNoteText, setOutcomeNoteText] = useState("");
 
-  const addOutcomeNoteMutation = useMutation({
-    mutationFn: (text: string) =>
-      outcomeNotesApi.create({
-        meeting_id: id,
-        outcome_id: outcomeId!,
-        text,
-        sort_order: (outcomeNotes?.length ?? 0),
-        source: "manual",
-      }),
-    onSuccess: () => {
-      setOutcomeNoteText("");
-      qc.invalidateQueries({ queryKey: ["outcome-notes", outcomeId] });
-      toast.success("Note added");
-    },
-    onError: async (e) => toast.error(await getErrorMsg(e)),
-  });
+  useEffect(() => {
+    if (existingNote) setOutcomeNoteText(existingNote.text);
+  }, [existingNote]);
 
   useEffect(() => {
     if (existingOutcome) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setPrimaryOutcome((existingOutcome.primary_outcome as PrimaryOutcome) ?? "Decision Made");
       setActionItems(existingOutcome.action_items?.length ? existingOutcome.action_items : [{ text: "", assignee_email: "", due_date: "" }]);
-      setNotes(existingOutcome.notes ?? "");
     }
   }, [existingOutcome]);
 
   const saveMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const body = {
         primary_outcome: primaryOutcome as PrimaryOutcome,
         action_items: actionItems.filter((a) => a.text.trim()),
-        notes,
       };
-      if (existingOutcome) return outcomesApi.update(id, body);
-      return outcomesApi.create(id, body);
+      const saved = existingOutcome
+        ? await outcomesApi.update(id, body)
+        : await outcomesApi.create(id, body);
+
+      if (outcomeNoteText.trim() && saved.id) {
+        if (existingNote) {
+          await outcomeNotesApi.update(existingNote.id, outcomeNoteText.trim());
+        } else {
+          await outcomeNotesApi.create({
+            meeting_id: id,
+            outcome_id: saved.id,
+            text: outcomeNoteText.trim(),
+            sort_order: 0,
+            source: "manual",
+          });
+        }
+      }
+
+      return saved;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["outcomes", id] });
       qc.invalidateQueries({ queryKey: ["meetings", id] });
+      qc.invalidateQueries({ queryKey: ["outcome-notes"] });
       toast.success("Outcome saved");
     },
     onError: async (e) => toast.error(await getErrorMsg(e)),
@@ -268,20 +282,33 @@ export default function MeetingDetailPage({
             {meeting.department} &middot; {meeting.meeting_type}
             {meeting.scheduled_at && ` &middot; ${format(new Date(meeting.scheduled_at), "MMM d, yyyy h:mm a")}`}
           </p>
+          <p className="text-sm text-muted-foreground">
+            Host: {meeting.facilitator?.name ?? meeting.facilitator?.email ?? meeting.creator?.name ?? meeting.creator?.email ?? "Unassigned"}
+            {(meeting.facilitator_id === user?.id || meeting.created_by === user?.id) && (
+              <Button variant="link" size="sm" className="h-auto px-1 text-xs" onClick={() => setShowHostPicker(true)}>
+                Transfer
+              </Button>
+            )}
+          </p>
         </div>
         {meeting.share_token && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={() => {
-              const url = `${window.location.origin}/live/${meeting.share_token}`;
-              navigator.clipboard.writeText(url);
-              toast.success("Live link copied to clipboard");
-            }}
-          >
-            <Share2 className="h-4 w-4" /> Share Live
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => {
+                const url = `${window.location.origin}/live/${meeting.share_token}`;
+                navigator.clipboard.writeText(url);
+                toast.success("Live link copied to clipboard");
+              }}
+            >
+              <Share2 className="h-4 w-4" /> Share Live
+            </Button>
+            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setShowQr(true)}>
+              <QrCode className="h-4 w-4" />
+            </Button>
+          </>
         )}
       </div>
 
@@ -294,6 +321,15 @@ export default function MeetingDetailPage({
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <TimerIcon className="h-5 w-5" /> Timer
+                  {meeting && canEdit && (
+                    <label className="ml-auto flex items-center gap-2 text-sm font-normal cursor-pointer">
+                      <span className="text-muted-foreground">Open to admins</span>
+                      <Switch
+                        checked={meeting.timer_open_to_all ?? false}
+                        onCheckedChange={(checked) => updateMeeting.mutate({ id, patch: { timer_open_to_all: checked } })}
+                      />
+                    </label>
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -317,7 +353,7 @@ export default function MeetingDetailPage({
                   </div>
                 )}
 
-                {isAdmin && (
+                {canEdit && (
                   <div className="flex justify-center gap-3">
                     {/* Start / Pause toggle */}
                     <Button
@@ -450,7 +486,7 @@ export default function MeetingDetailPage({
                   <CardTitle>Primary Outcome</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {isAdmin ? (
+                  {canEdit ? (
                     <Select value={primaryOutcome} onValueChange={(v) => setPrimaryOutcome(v as PrimaryOutcome)}>
                       <SelectTrigger>
                         <SelectValue />
@@ -470,7 +506,7 @@ export default function MeetingDetailPage({
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle>Action Items</CardTitle>
-                  {isAdmin && (
+                  {canEdit && (
                     <Button type="button" variant="outline" size="sm" onClick={addActionItem}>
                       <Plus className="mr-1 h-3 w-3" /> Add
                     </Button>
@@ -482,7 +518,7 @@ export default function MeetingDetailPage({
                   ) : (
                     actionItems.map((item, i) => (
                       <div key={i} className="space-y-2 p-3 border rounded-lg">
-                        {isAdmin ? (
+                        {canEdit ? (
                           <>
                             <div className="flex items-start gap-2">
                               <Input
@@ -549,24 +585,6 @@ export default function MeetingDetailPage({
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Notes</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {isAdmin ? (
-                    <Textarea
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Additional notes or comments..."
-                      rows={4}
-                    />
-                  ) : (
-                    <p className="text-sm whitespace-pre-wrap">{notes || "No notes"}</p>
-                  )}
-                </CardContent>
-              </Card>
-
               {/* Outcome Notes Section */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
@@ -575,56 +593,42 @@ export default function MeetingDetailPage({
                 <CardContent className="space-y-3">
                   {outcomeNotes && outcomeNotes.length > 0 ? (
                     outcomeNotes.map((n, i) => (
-                      <div key={n.id ?? i} className="flex gap-3 p-3 rounded-lg bg-accent/30">
-                        <div className="min-w-0 flex-1">
+                      <div key={n.id ?? i} className="flex items-start justify-between gap-2 p-3 rounded-lg bg-accent/30">
+                        <div className="min-w-0">
                           <p className="text-sm whitespace-pre-wrap">{n.text}</p>
-                          <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
-                            {n.created_by_user?.name && <span>{n.created_by_user.name}</span>}
-                            <span>{format(new Date(n.created_at), "MMM d, h:mm a")}</span>
-                            {n.source === "comment" && <Badge variant="outline" className="text-[10px] px-1.5 py-0">From comment</Badge>}
-                          </div>
+                          <p className="mt-1 text-[10px] text-muted-foreground">{n.created_by_user?.name && <span>{n.created_by_user.name} · </span>}{format(new Date(n.created_at), "MMM d, h:mm a")}</p>
                         </div>
+                        {(isSuperAdmin || isHost) && meeting.status !== "logged" && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="shrink-0 h-6 w-6 text-muted-foreground hover:text-destructive"
+                            onClick={() => {
+                              outcomeNotesApi.remove(n.id).then(() => {
+                                qc.invalidateQueries({ queryKey: ["outcome-notes"] });
+                                toast.success("Note removed");
+                              }).catch(async (e) => toast.error(await getErrorMsg(e)));
+                            }}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        )}
                       </div>
                     ))
                   ) : (
                     <p className="text-sm text-muted-foreground">No outcome notes yet</p>
                   )}
 
-                  {isAdmin && meeting.status !== "logged" && (
-                    <div className="flex gap-2">
-                      <Input
-                        value={outcomeNoteText}
-                        onChange={(e) => setOutcomeNoteText(e.target.value)}
-                        placeholder="Add a note..."
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey && outcomeNoteText.trim() && outcomeId) {
-                            e.preventDefault();
-                            addOutcomeNoteMutation.mutate(outcomeNoteText.trim());
-                          }
-                        }}
-                      />
-                      <Button
-                        size="icon"
-                        onClick={() => outcomeNoteText.trim() && outcomeId && addOutcomeNoteMutation.mutate(outcomeNoteText.trim())}
-                        disabled={!outcomeNoteText.trim() || !outcomeId || addOutcomeNoteMutation.isPending}
-                      >
-                        {addOutcomeNoteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                      </Button>
-                    </div>
+                  {(isSuperAdmin || isHost) && meeting.status !== "logged" && (
+                    <Textarea
+                      value={outcomeNoteText}
+                      onChange={(e) => setOutcomeNoteText(e.target.value)}
+                      placeholder="Add a note for the outcome..."
+                      rows={3}
+                    />
                   )}
                 </CardContent>
               </Card>
-
-              {isAdmin && (
-                <Button
-                  className="w-full"
-                  onClick={() => saveMutation.mutate()}
-                  disabled={saveMutation.isPending}
-                >
-                  {saveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Save Outcome
-                </Button>
-              )}
             </>
           )}
 
@@ -636,50 +640,54 @@ export default function MeetingDetailPage({
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {comments && comments.data.length > 0 ? (
+              {comments && comments.data.length > 0 && (
                 <div className="space-y-3">
                   {comments.data.map((c: CommentType) => (
                     <div key={c.id} className="flex gap-3 p-3 rounded-lg bg-accent/30">
                       <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-                        {(c.users?.name ?? "U")[0].toUpperCase()}
+                        {(c.users?.name || "U")[0].toUpperCase()}
                       </div>
                       <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium">{c.users?.name ?? "Unknown"}</span>
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">{c.users?.role ?? "member"}</Badge>
-                          <span className="text-[10px] text-muted-foreground">
-                            {format(new Date(c.created_at), "MMM d, h:mm a")}
-                          </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-medium">{c.users?.name ?? "Unknown"}</span>
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">{c.users?.role ?? "member"}</Badge>
+                          <span className="text-[10px] text-muted-foreground">{format(new Date(c.created_at), "MMM d, h:mm a")}</span>
                         </div>
                         <p className="mt-1 text-sm">{c.text}</p>
                       </div>
                     </div>
                   ))}
                 </div>
-              ) : (
+              )}
+
+              {!comments?.data?.length && (
                 <p className="text-sm text-muted-foreground">No comments yet</p>
               )}
 
-              <div className="flex gap-2">
-                <Input
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  placeholder="Add a comment..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey && commentText.trim()) {
-                      e.preventDefault();
-                      addCommentMutation.mutate(commentText.trim());
-                    }
-                  }}
-                />
-                <Button
-                  size="icon"
-                  onClick={() => commentText.trim() && addCommentMutation.mutate(commentText.trim())}
-                  disabled={!commentText.trim() || addCommentMutation.isPending}
-                >
-                  {addCommentMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                </Button>
-              </div>
+              {userComment ? (
+                <p className="text-sm text-muted-foreground">You already commented</p>
+              ) : (
+                <div className="flex gap-2">
+                  <Input
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    placeholder="Add a comment..."
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey && commentText.trim()) {
+                        e.preventDefault();
+                        addCommentMutation.mutate(commentText.trim());
+                      }
+                    }}
+                  />
+                  <Button
+                    size="icon"
+                    onClick={() => commentText.trim() && addCommentMutation.mutate(commentText.trim())}
+                    disabled={!commentText.trim() || addCommentMutation.isPending}
+                  >
+                    {addCommentMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -697,7 +705,7 @@ export default function MeetingDetailPage({
                 onSave={async (patch) => {
                   await updateMeeting.mutateAsync({ id, patch });
                 }}
-                disabled={!isAdmin}
+                disabled={!canEdit}
               />
               {meeting.vibe && (
                 <div>
@@ -713,6 +721,25 @@ export default function MeetingDetailPage({
                 <p className="text-muted-foreground">Participants</p>
                 <p className="font-medium">{meeting.participants?.length ?? 0}</p>
               </div>
+              {(meeting.status === "completed" || meeting.status === "logged") && meeting.actual_duration != null && (
+                <div>
+                  <p className="text-muted-foreground">Duration</p>
+                  <p className="font-medium flex items-center gap-2">
+                    {formatDuration(meeting.actual_duration)}
+                    {meeting.actual_duration > meeting.scheduled_duration ? (
+                      <Badge variant="destructive" className="text-[10px]">
+                        +{formatDuration(meeting.actual_duration - meeting.scheduled_duration)} over
+                      </Badge>
+                    ) : meeting.actual_duration < meeting.scheduled_duration ? (
+                      <Badge variant="secondary" className="text-[10px]">
+                        -{formatDuration(meeting.scheduled_duration - meeting.actual_duration)} under
+                      </Badge>
+                    ) : (
+                      <Badge variant="default" className="text-[10px]">Perfect</Badge>
+                    )}
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -733,7 +760,7 @@ export default function MeetingDetailPage({
           </Button>
 
           {/* Sidebar Actions */}
-          {meeting.status === "active" && isAdmin && (
+          {meeting.status === "active" && canEdit && (
             <Button
               className="w-full"
               variant="outline"
@@ -750,7 +777,7 @@ export default function MeetingDetailPage({
             </Button>
           )}
 
-          {(meeting.status === "completed" || meeting.status === "logged" || meeting.status === "active") && isAdmin && (
+          {(meeting.status === "completed" || meeting.status === "logged") && canEdit && (
             <Button
               className="w-full"
               onClick={() => saveMutation.mutate()}
@@ -821,6 +848,96 @@ export default function MeetingDetailPage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={showHostPicker} onOpenChange={setShowHostPicker}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Transfer host</DialogTitle>
+            <DialogDescription>Select a new host for this meeting</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-4">
+            <Input
+              value={hostSearch}
+              onChange={(e) => setHostSearch(e.target.value)}
+              placeholder="Search team members..."
+              autoFocus
+            />
+            <HostSearchResults
+              search={hostSearch}
+              currentId={meeting.facilitator_id ?? user?.id ?? ""}
+              onSelect={(userId) => {
+                updateMeeting.mutate({ id, patch: { facilitator_id: userId } }, {
+                  onSuccess: () => {
+                    setShowHostPicker(false);
+                    setHostSearch("");
+                    toast.success("Host transferred");
+                  },
+                  onError: async (e) => toast.error(await getErrorMsg(e)),
+                });
+              }}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showQr} onOpenChange={setShowQr}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Scan to join</DialogTitle>
+          </DialogHeader>
+          <div className="flex justify-center py-6">
+            <QrCodeView url={`${window.location.origin}/live/${meeting.share_token}`} />
+          </div>
+          <div className="text-center text-sm text-muted-foreground break-all px-2 font-medium">
+            {window.location.origin}/live/{meeting.share_token}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+function HostSearchResults({ search, currentId, onSelect }: { search: string; currentId: string; onSelect: (id: string) => void }) {
+  const { data, isFetching } = useQuery({
+    queryKey: ["users", "search", search],
+    queryFn: () => usersApi.list({ search, perPage: 10 }),
+    enabled: search.length >= 1,
+  });
+
+  if (isFetching) return <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin" /></div>;
+  if (!search) return <p className="text-sm text-muted-foreground text-center py-4">Type to search</p>;
+
+  const filtered = (data?.data ?? []).filter((u) => u.id !== currentId);
+
+  if (filtered.length === 0) return <p className="text-sm text-muted-foreground text-center py-4">No results</p>;
+
+  return (
+    <div className="space-y-0.5 max-h-60 overflow-y-auto">
+      {filtered.map((u) => (
+        <button
+          key={u.id}
+          type="button"
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent text-left"
+          onClick={() => onSelect(u.id)}
+        >
+          <span className="font-medium">{u.name ?? u.email}</span>
+          <span className="text-xs text-muted-foreground ml-auto">{u.email}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function QrCodeView({ url }: { url: string }) {
+  const [dataUrl, setDataUrl] = useState("");
+
+  useEffect(() => {
+    if (!url) return;
+    QRCode.toDataURL(url, {
+      width: 280, margin: 1, color: { dark: "#4a7c59", light: "#ffffff" },
+    }).then(setDataUrl);
+  }, [url]);
+
+  if (!dataUrl) return <div className="h-[280px] w-[280px] animate-pulse rounded-xl bg-muted" />;
+  return <img src={dataUrl} alt="QR Code" className="rounded-xl" width={280} height={280} />;
 }

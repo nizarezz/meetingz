@@ -86,7 +86,6 @@ export default function MeetingReportPage({
                 {snap.outcomes.map((o) => (
                   <div key={o.id} className="space-y-2">
                     <Badge variant="secondary">{o.primary_outcome}</Badge>
-                    {o.notes && <p className="text-sm whitespace-pre-wrap">{o.notes}</p>}
                     <p className="text-[10px] text-muted-foreground">
                       {format(new Date(o.created_at), "MMM d, h:mm a")}
                     </p>
@@ -244,7 +243,20 @@ export default function MeetingReportPage({
               )}
               <div>
                 <p className="text-muted-foreground">Duration</p>
-                <p className="font-medium">{formatDuration(meeting.actual_duration ?? meeting.scheduled_duration)}</p>
+                <p className="font-medium flex items-center gap-2">
+                  {formatDuration(meeting.actual_duration ?? meeting.scheduled_duration)}
+                  {meeting.actual_duration != null && meeting.actual_duration > meeting.scheduled_duration ? (
+                    <Badge variant="destructive" className="text-[10px]">
+                      +{formatDuration(meeting.actual_duration - meeting.scheduled_duration)} over
+                    </Badge>
+                  ) : meeting.actual_duration != null && meeting.actual_duration < meeting.scheduled_duration ? (
+                    <Badge variant="secondary" className="text-[10px]">
+                      -{formatDuration(meeting.scheduled_duration - meeting.actual_duration)} under
+                    </Badge>
+                  ) : meeting.actual_duration != null ? (
+                    <Badge variant="default" className="text-[10px]">Perfect</Badge>
+                  ) : null}
+                </p>
               </div>
               <div>
                 <p className="text-muted-foreground">Snapshot</p>

@@ -16,7 +16,7 @@ export const meetingsApi = {
     scheduled_duration: number; scheduled_at?: string; facilitator_id?: string;
     vibe?: string; agenda_items?: AgendaItem[]; participants?: { user_id: string; role?: ParticipantRole }[];
   }) => api().post("meetings", { json: input }).json<Meeting>(),
-  update: (id: string, patch: Partial<Pick<Meeting, "title" | "status" | "department" | "meeting_type" | "scheduled_at" | "scheduled_duration" | "agenda_items" | "vibe">>) =>
+  update: (id: string, patch: Partial<Pick<Meeting, "title" | "status" | "department" | "meeting_type" | "scheduled_at" | "scheduled_duration" | "agenda_items" | "vibe" | "facilitator_id" | "timer_open_to_all">>) =>
     api().patch(`meetings/${id}`, { json: patch }).json<Meeting>(),
   remove: (id: string) => api().delete(`meetings/${id}`).json<{ deleted: true }>(),
 };

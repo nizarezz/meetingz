@@ -3,6 +3,7 @@ import type { ActionItem, PaginatedResponse } from "@/lib/types";
 
 export interface ActionItemWithMeeting extends ActionItem {
   meetings: { title: string; scheduled_at: string | null; status?: string };
+  assignee?: { name: string; email: string } | null;
   status?: string;
   priority?: string;
   assigned_by?: string;
@@ -27,10 +28,11 @@ export interface CreateActionItemResponse {
 }
 
 export const actionItemsApi = {
-  list: (params?: { assignee_email?: string; assignee_id?: string; page?: number; perPage?: number }) => {
+  list: (params?: { assignee_email?: string; assignee_id?: string; assigned_by?: string; page?: number; perPage?: number }) => {
     const searchParams = new URLSearchParams();
     if (params?.assignee_id) searchParams.set("assignee_id", params.assignee_id);
     if (params?.assignee_email) searchParams.set("assignee_email", params.assignee_email);
+    if (params?.assigned_by) searchParams.set("assigned_by", params.assigned_by);
     if (params?.page) searchParams.set("page", String(params.page));
     if (params?.perPage) searchParams.set("per_page", String(params.perPage));
     return api().get("action-items", { searchParams }).json<PaginatedResponse<ActionItemWithMeeting>>();

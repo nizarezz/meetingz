@@ -10,7 +10,9 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { usersApi, departmentsApi } from "@/lib/api";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +29,7 @@ import {
 import type { UserRole } from "@/lib/types";
 import { ADMIN_ROLES, SUPER_ADMIN_ROLES } from "@/lib/types";
 import { format } from "date-fns";
+import { getErrorMsg } from "@/lib/utils";
 
 const inviteSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -41,6 +44,7 @@ const PER_PAGE = 20;
 
 export default function OrganizationPage() {
   const { role } = useAuth();
+  const qc = useQueryClient();
   const [usersPageNum, setUsersPageNum] = useState(1);
   const { data: team, isLoading: teamLoading } = useTeam();
   const { data: usersPage, isLoading: usersLoading } = useUsers({ page: usersPageNum, perPage: PER_PAGE });
@@ -51,6 +55,12 @@ export default function OrganizationPage() {
   const deactivateUser = useDeactivateUser();
   const inviteUser = useInviteUser();
   const deleteTemplate = useDeleteTemplate();
+
+  const createDepartment = useMutation({
+    mutationFn: (name: string) => departmentsApi.create(name),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["departments"] }); toast.success("Department added"); },
+    onError: async (e) => toast.error(await getErrorMsg(e)),
+  });
 
   const [teamName, setTeamName] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -91,7 +101,7 @@ export default function OrganizationPage() {
           setInviteOpen(false);
           reset({ email: "", name: "", department: "", role: "member" });
         },
-        onError: (err) => toast.error(err.message),
+        onError: async (err) => toast.error(await getErrorMsg(err)),
       },
     );
   }
@@ -109,6 +119,7 @@ export default function OrganizationPage() {
 
   const isAdmin = ADMIN_ROLES.includes(role as UserRole);
   const isSuperAdmin = SUPER_ADMIN_ROLES.includes(role as UserRole);
+  const [orgTab, setOrgTab] = useState("overview");
 
   if (teamLoading || usersLoading || templatesLoading) {
     return (
@@ -134,25 +145,15 @@ export default function OrganizationPage() {
         <p className="mt-1 text-muted-foreground">Manage your team, members, and templates</p>
       </div>
 
-      <Tabs defaultValue="overview">
-        <TabsList className="gap-6 bg-transparent border-b border-outline-variant/40 rounded-none p-0 h-auto">
-          <TabsTrigger value="overview" className="pb-3 text-lg font-semibold data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none bg-transparent shadow-none px-0 data-[state=active]:shadow-none">
-            Overview
-          </TabsTrigger>
-          {isAdmin && (
-            <TabsTrigger value="members" className="pb-3 text-lg font-semibold data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none bg-transparent shadow-none px-0 data-[state=active]:shadow-none">
-              Members
-            </TabsTrigger>
-          )}
-          {isAdmin && (
-            <TabsTrigger value="templates" className="pb-3 text-lg font-semibold data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none bg-transparent shadow-none px-0 data-[state=active]:shadow-none">
-              Templates
-            </TabsTrigger>
-          )}
-        </TabsList>
+      {/* Tabs */}
+      <div className="flex gap-8 border-b border-outline-variant/40">
+        <button onClick={() => setOrgTab("overview")} className={`pb-3 text-lg font-semibold transition-colors relative ${orgTab === "overview" ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>Overview</button>
+        {isAdmin && <button onClick={() => setOrgTab("members")} className={`pb-3 text-lg font-semibold transition-colors relative ${orgTab === "members" ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>Members</button>}
+        {isAdmin && <button onClick={() => setOrgTab("templates")} className={`pb-3 text-lg font-semibold transition-colors relative ${orgTab === "templates" ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>Templates</button>}
+      </div>
 
-        {/* ── Overview Tab ── */}
-        <TabsContent value="overview" className="mt-8 space-y-8">
+      {/* ── Overview Tab ── */}
+        {orgTab === "overview" && <div className="mt-8 space-y-8">
           <div className="grid gap-6 md:grid-cols-3">
             <Card className="bg-surface shadow-sm border-outline-variant/20">
               <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
@@ -171,8 +172,8 @@ export default function OrganizationPage() {
             <Card className="bg-surface shadow-sm border-outline-variant/20">
               <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
                 <Building2 className="h-8 w-8 text-primary" />
-                <p className="font-display text-3xl font-bold">{team ? 1 : 0}</p>
-                <p className="text-sm text-muted-foreground">Workspace</p>
+                <p className="font-display text-3xl font-bold">{departments?.length ?? 0}</p>
+                <p className="text-sm text-muted-foreground">Departments</p>
               </CardContent>
             </Card>
           </div>
@@ -209,10 +210,46 @@ export default function OrganizationPage() {
               </CardContent>
             </Card>
           )}
-        </TabsContent>
+
+          <Card className="bg-surface shadow-sm border-outline-variant/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <Building2 className="h-5 w-5 text-primary" />
+                Departments
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {departments?.length ? departments.map((d) => (
+                  <Badge key={d} variant="outline" className="px-3 py-1">{d}</Badge>
+                )) : (
+                  <p className="text-sm text-muted-foreground">No departments yet</p>
+                )}
+              </div>
+              {isAdmin && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const fd = new FormData(e.currentTarget);
+                    const name = fd.get("dept-name") as string;
+                    if (name?.trim()) createDepartment.mutate(name.trim());
+                    e.currentTarget.reset();
+                  }}
+                  className="flex gap-2"
+                >
+                  <Input name="dept-name" placeholder="New department name" className="flex-1 h-9" required />
+                  <Button type="submit" size="sm" className="h-9" disabled={createDepartment.isPending}>
+                    {createDepartment.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    Add
+                  </Button>
+                </form>
+              )}
+            </CardContent>
+          </Card>
+        </div>}
 
         {/* ── Members Tab ── */}
-        <TabsContent value="members" className="mt-8 space-y-6">
+        {orgTab === "members" && <div className="mt-8 space-y-6">
           <div className="flex items-center justify-between">
             <p className="text-lg text-muted-foreground">{totalUsers} total members</p>
             {isAdmin && (
@@ -295,12 +332,33 @@ export default function OrganizationPage() {
                         <p className="text-xs text-muted-foreground">{u.email}</p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <Badge variant={
-                          SUPER_ADMIN_ROLES.includes(u.role as UserRole) ? "default" :
-                          ADMIN_ROLES.includes(u.role as UserRole) ? "secondary" : "outline"
-                        }>
-                          {u.role}
-                        </Badge>
+                        {isSuperAdmin ? (
+                          <Select
+                            value={u.role}
+                            onValueChange={(newRole) => {
+                              usersApi.changeRole(u.id, newRole as UserRole).then(() => {
+                                toast.success(`Role changed to ${newRole}`);
+                                qc.invalidateQueries({ queryKey: ["users"] });
+                              }).catch(async (e) => toast.error(await getErrorMsg(e)));
+                            }}
+                          >
+                            <SelectTrigger className="h-7 w-32">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="member">Member</SelectItem>
+                              <SelectItem value="dept_admin">Dept Admin</SelectItem>
+                              <SelectItem value="super_admin">Super Admin</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Badge variant={
+                            SUPER_ADMIN_ROLES.includes(u.role as UserRole) ? "default" :
+                            ADMIN_ROLES.includes(u.role as UserRole) ? "secondary" : "outline"
+                          }>
+                            {u.role}
+                          </Badge>
+                        )}
                         {u.department && <Badge variant="outline">{u.department}</Badge>}
                         {u.is_approved ? (
                           <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50">Approved</Badge>
@@ -336,10 +394,10 @@ export default function OrganizationPage() {
               </CardContent>
             </Card>
           )}
-        </TabsContent>
+        </div>}
 
         {/* ── Templates Tab ── */}
-        <TabsContent value="templates" className="mt-8 space-y-6">
+        {orgTab === "templates" && <div className="mt-8 space-y-6">
           <div className="flex items-center justify-between">
             <p className="text-lg text-muted-foreground">{templates?.length ?? 0} templates</p>
             {isAdmin && (
@@ -394,8 +452,7 @@ export default function OrganizationPage() {
               ))}
             </div>
           )}
-        </TabsContent>
-      </Tabs>
+        </div>}
     </div>
   );
 }

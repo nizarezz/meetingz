@@ -138,30 +138,24 @@ export default function DashboardPage() {
       </div>
 
       <div className="flex flex-wrap items-end gap-4">
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">From</Label>
-          <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPreset(""); }} className="h-9 w-40" />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">To</Label>
-          <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPreset(""); }} className="h-9 w-40" />
-        </div>
+        
+      
         <div className="flex items-center gap-1">
           {["today","week","month","all"].map((p) => (
             <Button key={p} variant={preset === p ? "default" : "outline"} size="sm" onClick={() => applyPreset(p)} className="h-9 capitalize">
-              {p === "all" ? "All" : `This ${p}`}
+              {p === "all" ? "All" : `${p}`}
             </Button>
           ))}
         </div>
-        {(dateFrom || dateTo) && (
+        {/* {(dateFrom || dateTo) && (
           <Button variant="ghost" size="sm" onClick={clearFilter}>Clear</Button>
-        )}
+        )} */}
         <p className="text-xs text-muted-foreground pb-0.5">
           {meetings.length} of {allMeetings.length} meetings
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 ">
         {stats.map((s) => {
           const Icon = s.icon;
           return (
@@ -193,6 +187,7 @@ export default function DashboardPage() {
                   <CardContent className="space-y-2 text-sm text-muted-foreground">
                     <p>{m.department} · {m.meeting_type}</p>
                     <p>{m.agenda_items?.length ?? 0} agenda items</p>
+                     
                   </CardContent>
                 </Card>
               </Link>
@@ -207,7 +202,7 @@ export default function DashboardPage() {
           {plannedMeetings.length === 0 ? (
             <p className="text-sm text-muted-foreground">No planned meetings</p>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3 flex flex-col ">
               {plannedMeetings.map((m) => (
                 <Link key={m.id} href={`/meetings/${m.id}`}>
                   <Card className="cursor-pointer transition hover:shadow-sm">
@@ -236,7 +231,7 @@ export default function DashboardPage() {
           {recentMeetings.length === 0 ? (
             <p className="text-sm text-muted-foreground">No recent meetings</p>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3 flex flex-col">
               {recentMeetings.map((m) => (
                 <Link key={m.id} href={`/meetings/${m.id}`}>
                   <Card className="cursor-pointer transition hover:shadow-sm">

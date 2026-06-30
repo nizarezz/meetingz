@@ -42,6 +42,8 @@ export const updateMeetingSchema = z.object({
   vibe: z.string().optional(),
   scheduled_duration: z.number().int().positive().optional(),
   scheduled_at: z.string().optional(),
+  facilitator_id: z.string().uuid().optional(),
+  timer_open_to_all: z.boolean().optional(),
   agenda_items: z.array(z.object({
     title: z.string().min(1),
     duration: z.number().int().min(0).default(0),
@@ -75,7 +77,6 @@ export const createOutcomeSchema = z.object({
     assignee_email: z.string().email().optional(),
     due_date: z.string().optional(),
   })).default([]),
-  notes: z.string().optional(),
 });
 
 export const createTemplateSchema = z.object({

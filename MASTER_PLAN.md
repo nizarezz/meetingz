@@ -38,7 +38,7 @@ PART 2: ROLES AND WHAT THEY MEAN
   ├── Everything member can do
   ├── Create / edit / cancel / delete meetings
   ├── Approve / reject members
-  ├── Grant temporary admin to a member (with expiry)
+  ├── [Deferred: temporary admin grant — not yet spec'd]
   ├── Remove participants
   ├── Create / edit / delete templates
   ├── Pull comments to outcomes
@@ -67,11 +67,6 @@ PART 2: ROLES AND WHAT THEY MEAN
   isFacilitator  = meeting.facilitator_id === currentUser.id
   isMeetingAdmin = teamRole === 'admin' || teamRole === 'super_admin'
   canManageMeeting = isFacilitator || isMeetingAdmin
-
-  hasActiveGrant = role_grants WHERE user_id=me AND team_id=X
-                   AND expires_at > now() AND revoked_at IS NULL
-
-  effectiveRole = hasActiveGrant ? 'admin' : teamRole
 
 
 ═══════════════════════════════════════════════════════════════
@@ -378,7 +373,6 @@ PART 6: AUTHORIZATION LAYER — WHERE IT LIVES
       userId:        user.id,
       teamId:        teamId,
       teamRole:      membership.role,        // 'member' | 'admin' | 'super_admin'
-      effectiveRole: activeGrant?.role ?? membership.role,
       isApproved:    membership.is_approved
     }
 
@@ -392,7 +386,7 @@ PART 6: AUTHORIZATION LAYER — WHERE IT LIVES
   // Role helpers (use these everywhere):
   const can = {
     manageMeeting: (ctx, meeting) =>
-      ctx.effectiveRole !== 'member' ||
+      ctx.teamRole !== 'member' ||
       meeting.facilitator_id === ctx.userId,
 
     editOwnComment: (ctx, comment) =>
@@ -401,20 +395,20 @@ PART 6: AUTHORIZATION LAYER — WHERE IT LIVES
     deleteComment: (ctx, comment, meeting) =>
       comment.user_id === ctx.userId ||
       meeting.facilitator_id === ctx.userId ||
-      ctx.effectiveRole !== 'member',
+      ctx.teamRole !== 'member',
 
     completeActionItem: (ctx, item) =>
       item.assignee_id === ctx.userId,
 
     editActionItem: (ctx, item) =>
       item.assigned_by === ctx.userId ||
-      ctx.effectiveRole !== 'member',
+      ctx.teamRole !== 'member',
 
     controlTimer: (ctx, meeting) =>
       meeting.facilitator_id === ctx.userId,   // facilitator ONLY
 
     isAdmin: (ctx) =>
-      ['admin', 'super_admin'].includes(ctx.effectiveRole),
+      ['admin', 'super_admin'].includes(ctx.teamRole),
   }
 
   LAYER 3: Business logic (handler level)
@@ -488,7 +482,7 @@ PART 7: THE MIGRATION PLAN — ZERO DOWNTIME, ZERO BREAKAGE
   □ Add assigned_by JOIN to all action item queries
   □ Add /action-items/assigned-to-me endpoint
   □ Add /action-items/assigned-by-me endpoint
-  □ Add middleware: withAuth, effectiveRole, can.*
+  □ Add middleware: withAuth, can.* (teamRole, no effectiveRole/grant)
   □ Add state machine checks to all meeting state transitions
   □ Add facilitator-only guard to timer endpoints
   □ Migrate action_item_reminders → job_queue

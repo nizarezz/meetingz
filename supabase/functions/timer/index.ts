@@ -23,7 +23,7 @@ Deno.serve(async (req: Request) => {
       .from("meetings")
       .select(`
         id, status, scheduled_duration,
-        team_id
+        team_id, facilitator_id, created_by, timer_open_to_all
       `)
       .eq("id", meetingId)
       .is("deleted_at", null)
@@ -31,6 +31,8 @@ Deno.serve(async (req: Request) => {
 
     if (fetchErr) return err("Meeting not found", 404);
     if (meeting.team_id !== caller.team_id) return err("Forbidden", 403);
+
+    const isHost = meeting.facilitator_id === caller.id || meeting.created_by === caller.id;
 
     const { data: agendaItems } = await caller.client
       .from("agenda_items")
@@ -63,6 +65,12 @@ Deno.serve(async (req: Request) => {
     if (req.method !== "POST") return err("Method not allowed", 405);
 
     requireRole(caller, TIMER_ROLES);
+
+    // Host-only timer control when timer_open_to_all is false
+    if (!meeting.timer_open_to_all && !isHost) {
+      return err("Only the meeting host can control the timer", 403);
+    }
+
     checkRateLimit(`timer:actions:${caller.team_id}`, 120, "timer actions");
 
     const now = new Date().toISOString();

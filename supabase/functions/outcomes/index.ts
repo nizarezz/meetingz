@@ -64,7 +64,7 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET") {
       const { data: outcome, error } = await caller.client
         .from("outcomes")
-        .select("id, meeting_id, primary_outcome, notes, logged_by, team_id, created_at")
+        .select("id, meeting_id, primary_outcome, logged_by, team_id, created_at")
         .eq("meeting_id", meetingId)
         .maybeSingle();
 
@@ -89,7 +89,7 @@ Deno.serve(async (req: Request) => {
 
       const body = await req.json().catch(() => ({}));
       const parsed = parse(createOutcomeSchema, body);
-      const { primary_outcome, action_items = [], notes } = parsed;
+      const { primary_outcome, action_items = [] } = parsed;
 
       if (!primary_outcome) return err("primary_outcome is required");
       if (!VALID_OUTCOMES.includes(primary_outcome)) {
@@ -107,8 +107,8 @@ Deno.serve(async (req: Request) => {
 
       if (meetingErr || !meeting) return err("Meeting not found", 404);
       if (meeting.team_id !== caller.team_id) return err("Forbidden", 403);
-      if (meeting.status !== "completed") {
-        return err("Can only log outcomes for completed meetings");
+      if (meeting.status === "cancelled" || meeting.status === "logged") {
+        return err("Can only save outcomes for meetings that haven't ended", 409);
       }
 
       const { data: outcome, error: insertErr } = await svc
@@ -116,7 +116,6 @@ Deno.serve(async (req: Request) => {
         .insert({
           meeting_id: meetingId,
           primary_outcome,
-          notes: notes ?? null,
           logged_by: caller.id,
           team_id: caller.team_id,
         })
@@ -171,7 +170,7 @@ Deno.serve(async (req: Request) => {
       requireRole(caller, ADMIN_ROLES);
       checkRateLimit(`outcomes:update:${caller.team_id}`, 30, "outcome updates");
       const body = await req.json();
-      const { primary_outcome, action_items, notes } = body;
+      const { primary_outcome, action_items } = body;
       const svc = serviceClient();
 
       if (primary_outcome && !VALID_OUTCOMES.includes(primary_outcome)) {
@@ -180,7 +179,6 @@ Deno.serve(async (req: Request) => {
 
       const patch: Record<string, unknown> = {};
       if (primary_outcome !== undefined) patch.primary_outcome = primary_outcome;
-      if (notes !== undefined) patch.notes = notes;
 
       if (Object.keys(patch).length === 0 && action_items === undefined) {
         return err("No fields to update");
@@ -188,7 +186,7 @@ Deno.serve(async (req: Request) => {
 
       const { data: outcome, error: fetchErr } = await caller.client
         .from("outcomes")
-        .select("id, meeting_id, primary_outcome, notes, logged_by, team_id, created_at")
+        .select("id, meeting_id, primary_outcome, logged_by, team_id, created_at")
         .eq("meeting_id", meetingId)
         .maybeSingle();
 

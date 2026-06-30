@@ -6,6 +6,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { Sidebar } from "@/components/sidebar";
 import { TopNav } from "@/components/topnav";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useNotificationToasts } from "@/lib/hooks/use-notification-toasts";
 
 export default function AuthenticatedLayout({
   children,
@@ -21,6 +22,8 @@ export default function AuthenticatedLayout({
       router.replace("/login");
     }
   }, [user, loading, router]);
+
+  useNotificationToasts(user?.id);
 
   if (loading || !user) {
     return (

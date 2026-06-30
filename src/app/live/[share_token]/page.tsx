@@ -47,14 +47,16 @@ function EndedView({ data }: { data: LiveMeeting }) {
     <div className="min-h-screen bg-background p-6 max-w-lg mx-auto flex items-center justify-center">
       <Card className="w-full text-center">
         <CardHeader>
-          <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-muted mb-2">
-            <CheckCircle className="h-6 w-6 text-muted-foreground" />
+          <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-primary/10 mb-2">
+            <CheckCircle className="h-6 w-6 text-primary" />
           </div>
           <CardTitle className="text-2xl">{data.title}</CardTitle>
         </CardHeader>
-        <CardContent>
-          <Badge variant="outline">Ended</Badge>
-          <p className="text-muted-foreground mt-3">This meeting has ended.</p>
+        <CardContent className="space-y-3">
+          <p className="text-muted-foreground">Thank you for participating!</p>
+          {data.department && (
+            <p className="text-xs text-muted-foreground/60">{data.department} &middot; {data.meeting_type}</p>
+          )}
         </CardContent>
       </Card>
     </div>
