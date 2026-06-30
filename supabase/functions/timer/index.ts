@@ -162,11 +162,6 @@ Deno.serve(async (req: Request) => {
     if (action === "end") {
       const nowDate = new Date();
       const elapsedTotal = computeElapsedTotal(meetingWithTimer, nowDate);
-      const scheduleDelay = meeting.scheduled_at
-        ? Math.max(0, Math.floor((nowDate.getTime() - new Date(meeting.scheduled_at as string).getTime()) / 1000))
-        : 0;
-      const overrun = Math.max(0, Math.floor(elapsedTotal - (meeting.scheduled_duration as number)));
-
       return applyPatch(svc, meetingId, {
         is_timer_running:      false,
         timer_started_at:      null,
@@ -176,8 +171,6 @@ Deno.serve(async (req: Request) => {
       }, {
         status: "completed",
         actual_duration: Math.floor(elapsedTotal),
-        schedule_delay_seconds: scheduleDelay,
-        overrun_seconds: overrun,
       });
     }
 
