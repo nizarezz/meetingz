@@ -108,3 +108,8 @@ CREATE INDEX IF NOT EXISTS idx_action_items_due_date_pending
 
 CREATE INDEX IF NOT EXISTS idx_action_items_team_id_status
   ON action_items(team_id, status);
+
+-- 8. Department: single source of truth
+--    Keep on: users (user's department), meetings (meeting ownership/filtering)
+--    Drop from: meeting_participants (always derivable via users.id join)
+ALTER TABLE meeting_participants DROP COLUMN IF EXISTS department;

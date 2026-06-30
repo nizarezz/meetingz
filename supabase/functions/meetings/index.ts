@@ -48,33 +48,36 @@ Deno.serve(async (req: Request) => {
 
       const base = { id: data.id, title: data.title, state, scheduled_at: data.scheduled_at, department: data.department, meeting_type: data.meeting_type };
 
-      if (state === "active" || state === "starting_soon") {
-        const { data: timer } = await svc
-          .from("meeting_timer_state")
-          .select("*")
-          .eq("meeting_id", data.id)
-          .maybeSingle();
-
-        const { data: items } = await svc
-          .from("agenda_items")
-          .select("title, duration, assignee_email, presenter, notes")
-          .eq("meeting_id", data.id)
-          .order("sort_order", { ascending: true });
-
-        return ok({
-          ...base,
-          agenda_items: items ?? [],
-          active_item_index: timer?.active_item_index ?? 0,
-          is_timer_running: timer?.is_timer_running ?? false,
-          timer_started_at: timer?.timer_started_at ?? null,
-          timer_item_started_at: timer?.timer_item_started_at ?? null,
-          timer_base_total: timer?.timer_base_total ?? 0,
-          timer_base_item: timer?.timer_base_item ?? 0,
-          paused_at: timer?.paused_at ?? null,
-        });
+      // Only return timer + agenda data for active / starting-soon meetings
+      if (state !== "active" && state !== "starting_soon") {
+        return ok(base);
       }
 
-      return ok(base);
+      checkRateLimit(`meetings:public:${parts[1]}`, 30, "public meeting reads");
+
+      const { data: timer } = await svc
+        .from("meeting_timer_state")
+        .select("active_item_index, is_timer_running, timer_started_at, timer_item_started_at, timer_base_total, timer_base_item, paused_at")
+        .eq("meeting_id", data.id)
+        .maybeSingle();
+
+      const { data: items } = await svc
+        .from("agenda_items")
+        .select("title, duration, presenter")
+        .eq("meeting_id", data.id)
+        .order("sort_order", { ascending: true });
+
+      return ok({
+        ...base,
+        agenda_items: items ?? [],
+        active_item_index: timer?.active_item_index ?? 0,
+        is_timer_running: timer?.is_timer_running ?? false,
+        timer_started_at: timer?.timer_started_at ?? null,
+        timer_item_started_at: timer?.timer_item_started_at ?? null,
+        timer_base_total: timer?.timer_base_total ?? 0,
+        timer_base_item: timer?.timer_base_item ?? 0,
+        paused_at: timer?.paused_at ?? null,
+      });
     }
 
     const caller = await resolveCaller(req);
@@ -205,11 +208,10 @@ Deno.serve(async (req: Request) => {
 
       if (participants.length > 0) {
         const rows = participants.map(
-          (p: { user_id: string; role: string; department?: string }) => ({
+          (p: { user_id: string; role: string }) => ({
             meeting_id: meeting.id,
             user_id:    p.user_id,
             role:       p.role,
-            department: p.department ?? null,
             team_id:    caller.team_id,
           })
         );

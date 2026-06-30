@@ -55,11 +55,9 @@ export interface Participant {
   meeting_id: string;
   user_id: string;
   role: ParticipantRole;
-  department?: string | null;
   team_id?: string;
   users?: Partial<ApiUser>;
   created_at?: string;
-  notified_at?: string | null;
 }
 
 export interface ActionItem {
