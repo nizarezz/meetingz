@@ -7,6 +7,15 @@ ALTER TABLE meeting_participants DROP COLUMN IF EXISTS notified_at;
 ALTER TABLE meetings DROP COLUMN IF EXISTS schedule_delay_seconds;
 ALTER TABLE meetings DROP COLUMN IF EXISTS overrun_seconds;
 
+-- Notification preferences: drop columns with zero code references
+ALTER TABLE notification_preferences DROP COLUMN IF EXISTS meeting_reminder_push;
+ALTER TABLE notification_preferences DROP COLUMN IF EXISTS outcome_prompt_push;
+ALTER TABLE notification_preferences DROP COLUMN IF EXISTS assignment_assigned;
+ALTER TABLE notification_preferences DROP COLUMN IF EXISTS assignment_completed;
+ALTER TABLE notification_preferences DROP COLUMN IF EXISTS assignment_due_soon;
+-- email_digest was never read in code; daily_digest_email (the boolean) already dropped above
+ALTER TABLE notification_preferences DROP COLUMN IF EXISTS email_digest;
+
 -- 2. Add missing indexes on foreign keys
 CREATE INDEX IF NOT EXISTS idx_comments_meeting_id ON comments(meeting_id);
 CREATE INDEX IF NOT EXISTS idx_meeting_participants_meeting_id ON meeting_participants(meeting_id);
