@@ -41,10 +41,10 @@ const SORT_ORDER: Record<Status, number> = {
 
 function statusFromItem(item: ActionItemWithMeeting): Status {
   if (item.status === "blocked") return "blocked";
-  if (item.status === "done" || item.done) return "done";
+  if (item.status === "done") return "done";
   if (item.status === "overdue") return "overdue";
   if (item.status === "in_progress") return "in_progress";
-  if (item.due_date && !item.done && new Date(item.due_date) < new Date()) return "overdue";
+  if (item.due_date && item.status !== "done" && new Date(item.due_date) < new Date()) return "overdue";
   return "pending";
 }
 

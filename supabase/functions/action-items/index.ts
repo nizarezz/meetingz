@@ -199,7 +199,7 @@ Deno.serve(async (req: Request) => {
 
         const { error: updateErr } = await svc
           .from("action_items")
-          .update({ status: "done", done: true })
+          .update({ status: "done" })
           .eq("id", id);
 
         if (updateErr) return err(updateErr.message);

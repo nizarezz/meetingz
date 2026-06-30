@@ -82,3 +82,9 @@ ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS outcomes;
 ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS action_items;
 ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS action_item_activity;
 ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS action_item_reminders;
+
+-- 6. Drop action_items.done — fully replaced by action_items.status
+DROP TRIGGER IF EXISTS action_items_sync_done_status ON action_items CASCADE;
+DROP TRIGGER IF EXISTS action_items_sync_done ON action_items CASCADE;
+DROP FUNCTION IF EXISTS sync_action_item_done_status;
+ALTER TABLE action_items DROP COLUMN IF EXISTS done;

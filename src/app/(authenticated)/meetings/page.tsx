@@ -159,8 +159,8 @@ export default function MeetingsPage() {
           lines.push("### Action Items\n");
           for (const item of items) {
             const status = (item.status as string) ?? "pending";
-            const done = item.done ? "✅" : status === "blocked" ? "🚫" : "⬜";
-            lines.push(`- ${done} ${(item.text as string) ?? ""}${item.due_date ? ` (due: ${format(new Date(item.due_date as string), "MMM d, yyyy")})` : ""}`);
+            const icon = status === "done" ? "✅" : status === "blocked" ? "🚫" : "⬜";
+            lines.push(`- ${icon} ${(item.text as string) ?? ""}${item.due_date ? ` (due: ${format(new Date(item.due_date as string), "MMM d, yyyy")})` : ""}`);
           }
           lines.push("");
         }

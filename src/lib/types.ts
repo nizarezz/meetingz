@@ -69,7 +69,7 @@ export interface ActionItem {
   assignee_email?: string;
   assignee_id?: string;
   due_date?: string;
-  done?: boolean;
+  status?: string;
 }
 
 export interface Comment {

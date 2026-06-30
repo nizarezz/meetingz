@@ -73,7 +73,7 @@ Deno.serve(async (req: Request) => {
       if (outcome) {
         const { data: items } = await caller.client
           .from("action_items")
-          .select("id, text, assignee_email, assignee_id, due_date, done")
+          .select("id, text, assignee_email, assignee_id, due_date, status")
           .eq("outcome_id", outcome.id)
           .order("created_at", { ascending: true });
 
@@ -134,7 +134,7 @@ Deno.serve(async (req: Request) => {
           assignee_id: a.assignee_id || null,
           assignee_email: a.assignee_email || null,
           due_date: a.due_date || null,
-          done: a.done ?? false,
+          status: "pending",
           team_id: caller.team_id,
         }));
 
@@ -214,7 +214,7 @@ Deno.serve(async (req: Request) => {
             assignee_id: a.assignee_id || null,
             assignee_email: a.assignee_email || null,
             due_date: a.due_date || null,
-            done: a.done ?? false,
+            status: "pending",
             team_id: caller.team_id,
           }));
 
@@ -245,7 +245,7 @@ Deno.serve(async (req: Request) => {
 
       const { data: items } = await caller.client
         .from("action_items")
-        .select("id, text, assignee_email, assignee_id, due_date, done")
+        .select("id, text, assignee_email, assignee_id, due_date, status")
         .eq("outcome_id", outcome.id)
         .order("created_at", { ascending: true });
 

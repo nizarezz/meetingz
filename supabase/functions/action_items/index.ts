@@ -23,7 +23,7 @@ Deno.serve(async (req: Request) => {
 
       let query = caller.client
         .from("action_items")
-        .select("id, meeting_id, outcome_id, text, assignee_email, assignee_id, due_date, done, created_at, meetings!inner(title, scheduled_at)", { count: "exact" })
+        .select("id, meeting_id, outcome_id, text, assignee_email, assignee_id, due_date, status, created_at, meetings!inner(title, scheduled_at)", { count: "exact" })
         .eq("team_id", caller.team_id);
 
       if (assigneeId) {
@@ -67,7 +67,7 @@ Deno.serve(async (req: Request) => {
 
       const { data: updated, error: fetchErr } = await caller.client
         .from("action_items")
-        .select("id, meeting_id, outcome_id, text, assignee_email, assignee_id, due_date, done, created_at, meetings!inner(title, scheduled_at)")
+        .select("id, meeting_id, outcome_id, text, assignee_email, assignee_id, due_date, status, created_at, meetings!inner(title, scheduled_at)")
         .eq("id", itemId)
         .single();
 

@@ -47,7 +47,7 @@ export const actionItemsApi = {
   block: (id: string) =>
     api().patch(`action-items/${id}?action=block`).json<ActionItemWithMeeting>(),
 
-  update: (id: string, patch: Partial<Pick<ActionItem, "done">>) =>
+  update: (id: string, patch: Partial<Pick<ActionItemWithMeeting, "status" | "priority">>) =>
     api().patch(`action-items/${id}`, { json: patch }).json<ActionItemWithMeeting>(),
 
   remove: (id: string) =>

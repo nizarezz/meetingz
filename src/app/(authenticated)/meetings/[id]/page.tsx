@@ -553,10 +553,10 @@ export default function MeetingDetailPage({
                               </div>
                               <Button
                                 type="button"
-                                variant={item.done ? "default" : "outline"}
+                                variant={item.status === "done" ? "default" : "outline"}
                                 size="icon"
                                 className="shrink-0"
-                                onClick={() => updateActionItem(i, "done", !item.done)}
+                                onClick={() => updateActionItem(i, "status", item.status === "done" ? "pending" : "done")}
                               >
                                 <CheckSquare className="h-4 w-4" />
                               </Button>
@@ -565,7 +565,7 @@ export default function MeetingDetailPage({
                         ) : (
                           <div className="flex items-start justify-between">
                             <div>
-                              <p className={`text-sm ${item.done ? "line-through text-muted-foreground" : ""}`}>
+                              <p className={`text-sm ${item.status === "done" ? "line-through text-muted-foreground" : ""}`}>
                                 {item.text}
                               </p>
                               {(item.assignee_email || item.due_date) && (
@@ -576,7 +576,7 @@ export default function MeetingDetailPage({
                                 </p>
                               )}
                             </div>
-                            {item.done && <CheckSquare className="h-4 w-4 text-emerald-500 shrink-0" />}
+                            {item.status === "done" && <CheckSquare className="h-4 w-4 text-emerald-500 shrink-0" />}
                           </div>
                         )}
                       </div>
