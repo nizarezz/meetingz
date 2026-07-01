@@ -1,4 +1,5 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
+import { serviceClient } from "../_shared/supabase.ts";
 import { resolveCaller, requireRole, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { captureException } from "../_shared/sentry.ts";
 
@@ -7,6 +8,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const caller = await resolveCaller(req);
+    const svc = serviceClient();
 
     if (req.method === "GET") {
       const { data, error } = await caller.client
@@ -25,7 +27,7 @@ Deno.serve(async (req: Request) => {
       const name = (body.name ?? "").trim();
       if (!name) return err("Department name is required", 400);
 
-      const { error } = await caller.client
+      const { error } = await svc
         .from("departments")
         .insert({ name })
         .single();
@@ -43,7 +45,7 @@ Deno.serve(async (req: Request) => {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "Unknown error";
     await captureException(msg, { context: "departments" });
-    console.error(e);
+    console.error("departments handler failed:", e);
     return err("Internal server error", 500);
   }
 });
