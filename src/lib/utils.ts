@@ -18,6 +18,10 @@ export async function getErrorMsg(e: unknown): Promise<string> {
     try { return JSON.parse(text).error ?? text; } catch { return text || "Request failed"; }
   }
   const kyErr = e as HTTPError;
+  if (kyErr?.data) {
+    const msg = typeof kyErr.data === "object" ? (kyErr.data as Record<string, unknown>)?.error ?? kyErr.data : kyErr.data;
+    if (typeof msg === "string" && msg.length > 0) return msg;
+  }
   if (kyErr?.response) {
     try {
       const text = await kyErr.response.clone().text();

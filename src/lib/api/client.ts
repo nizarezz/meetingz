@@ -23,9 +23,9 @@ export function api() {
       ],
       beforeError: [
         async ({ error }) => {
-          if (error instanceof HTTPError) {
-            const text = await error.response.clone().text().catch(() => "");
-            try { error.message = JSON.parse(text).error ?? text; } catch { error.message = text || error.message; }
+          if (error instanceof HTTPError && error.data) {
+            const msg = typeof error.data === "object" ? (error.data as Record<string, unknown>)?.error ?? error.data : error.data;
+            if (typeof msg === "string" && msg.length > 0) error.message = msg;
           }
           return error;
         },
