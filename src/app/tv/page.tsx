@@ -197,53 +197,71 @@ export default function TvPage() {
     const el = fullscreenElapsed;
 
     return (
-      <div className="flex h-screen flex-col">
+      <div className="flex min-h-screen flex-col">
+        {/* Header with back arrow */}
         <div className="flex items-center justify-between px-8 pt-6">
           <Button
             variant="ghost"
-            className="text-white/60 hover:text-white"
+            size="sm"
+            className="text-white/60 hover:text-white gap-1"
             onClick={() => setFullscreenId(null)}
           >
-            &larr; Back
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+            Back
           </Button>
-          <div className="text-right">
-            <p className="text-2xl tabular-nums tracking-wider">
-              {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-white/40 hover:text-white"
+            onClick={() => router.push(`/meetings/${fullscreenId}`)}
+          >
+            Open details &rarr;
+          </Button>
+        </div>
+
+        {/* Timer section - matching the normal timer card style */}
+        <div className="flex flex-1 flex-col items-center justify-center px-8 -mt-12">
+          <h1 className="mb-2 text-4xl font-bold tracking-tight">{m?.title}</h1>
+          <Badge
+            variant={m?.status === "active" ? "default" : "secondary"}
+            className={`mb-6 px-3 py-1 ${m?.status === "active" ? "bg-amber-500" : ""}`}
+          >
+            {m?.status === "active" ? "LIVE" : formatDate(m?.scheduled_at ?? null)}
+          </Badge>
+
+          {/* Timer display - matches the normal card: text-6xl, monospace, bold */}
+          <div className="text-center">
+            <p className={`font-mono font-bold tabular-nums tracking-tight ${
+              isRunning ? "text-7xl md:text-8xl text-amber-400" : "text-6xl text-white/30"
+            }`}>
+              {formatDuration(el.total)}
+            </p>
+            <p className="mt-3 text-lg text-white/50">
+              {el.total > (m?.scheduled_duration ?? 0) * 60
+                ? `Over budget by ${formatDuration(el.total - (m?.scheduled_duration ?? 0) * 60)}`
+                : `${formatDuration((m?.scheduled_duration ?? 0) * 60 - el.total)} remaining`}
             </p>
           </div>
-        </div>
 
-        <div className="flex flex-1 flex-col items-center justify-center px-8">
-          <h1 className="mb-4 text-5xl font-bold tracking-tight">{m?.title}</h1>
-          {m && (
-            <Badge
-              variant={m.status === "active" ? "default" : "secondary"}
-              className={`mb-8 px-4 py-1.5 text-lg ${m.status === "active" ? "bg-emerald-500" : ""}`}
-            >
-              {m.status === "active" ? "LIVE" : formatDate(m.scheduled_at)}
-            </Badge>
+          {/* Active item (if any) - matches the normal card's active item section */}
+          {td?.is_running && (
+            <div className="mt-6 text-center text-sm text-white/50 border border-white/10 rounded-lg px-5 py-3">
+              <span className="font-medium text-white">Running</span>
+              <span className="mx-2">&middot;</span>
+              <span>Timer active</span>
+            </div>
           )}
-          <p className="mb-2 text-lg text-white/60">
-            {m?.department}{m?.meeting_type ? ` \u00b7 ${m.meeting_type}` : ""}
-          </p>
-          <p className={`font-mono font-bold tabular-nums tracking-tight ${isRunning ? "text-9xl" : "text-7xl text-white/40"}`}>
-            {formatDuration(el.total)}
-          </p>
-          <p className="mt-4 text-xl text-white/50">
-            {el.total > (m?.scheduled_duration ?? 0) * 60
-              ? `Over budget by ${formatDuration(el.total - (m?.scheduled_duration ?? 0) * 60)}`
-              : `${formatDuration((m?.scheduled_duration ?? 0) * 60 - el.total)} remaining`}
-          </p>
         </div>
 
+        {/* Room band */}
         {m?.room && (
-          <div className={`flex items-center justify-center gap-3 px-8 py-5 text-xl font-semibold ${
-            isRunning ? "bg-emerald-500/20 text-emerald-300" : "bg-white/5 text-white/50"
+          <div className={`flex items-center justify-center gap-2 px-8 py-4 text-base font-semibold ${
+            isRunning ? "bg-amber-500/10 text-amber-400" : "bg-white/5 text-white/40"
           }`}>
-            <span className={`h-3 w-3 rounded-full ${isRunning ? "bg-emerald-400 animate-pulse" : "bg-white/20"}`} />
+            <span className={`h-2 w-2 rounded-full ${isRunning ? "bg-amber-400" : "bg-white/20"}`} />
             {m.room.name}
-            <span className="text-base font-normal">
-              {isRunning ? " \u2022 Running" : " \u2022 Not running"}
+            <span className="text-sm font-normal">
+              {isRunning ? "\u2022 Running" : ""}
             </span>
           </div>
         )}
@@ -251,7 +269,7 @@ export default function TvPage() {
     );
   }
 
-  // Normal view
+  // Normal two-card view
   return (
     <div className="flex h-screen flex-col p-8 md:p-12">
       {/* Header */}
@@ -274,7 +292,6 @@ export default function TvPage() {
 
       {/* Cards */}
       <div className="mt-8 flex flex-1 gap-8">
-        {/* No meetings */}
         {meetings.length === 0 && (
           <div className="flex w-full flex-col items-center justify-center gap-4">
             <p className="text-2xl text-white/40">No meetings planned for today</p>
@@ -282,27 +299,23 @@ export default function TvPage() {
           </div>
         )}
 
-        {/* Card 1 */}
         {meetings[0] && (
           <MeetingCard
             meeting={meetings[0]}
             isActive={meetings[0].status === "active"}
             elapsed={elapsedMap[meetings[0].id]}
             timerRunning={timerData[meetings[0].id]?.is_running}
-            onNavigate={() => router.push(`/meetings/${meetings[0].id}`)}
-            onFullscreen={() => setFullscreenId(meetings[0].id)}
+            onExpand={() => setFullscreenId(meetings[0].id)}
           />
         )}
 
-        {/* Card 2 */}
         {meetings.length >= 2 ? (
           <MeetingCard
             meeting={meetings[1]}
             isActive={meetings[1].status === "active"}
             elapsed={elapsedMap[meetings[1].id]}
             timerRunning={timerData[meetings[1].id]?.is_running}
-            onNavigate={() => router.push(`/meetings/${meetings[1].id}`)}
-            onFullscreen={() => setFullscreenId(meetings[1].id)}
+            onExpand={() => setFullscreenId(meetings[1].id)}
           />
         ) : meetings.length === 1 && qrDataUrl ? (
           <QrFallbackCard meeting={meetings[0]} qrDataUrl={qrDataUrl} />
@@ -311,7 +324,6 @@ export default function TvPage() {
         ) : null}
       </div>
 
-      {/* Footer */}
       <div className="mt-6 border-t border-white/10 pt-4 text-center text-sm text-white/30">
         Auto-updates every 30s
       </div>
@@ -324,15 +336,13 @@ function MeetingCard({
   isActive: active,
   elapsed,
   timerRunning,
-  onNavigate,
-  onFullscreen,
+  onExpand,
 }: {
   meeting: TvMeeting;
   isActive: boolean;
   elapsed?: { total: number; item: number };
   timerRunning?: boolean;
-  onNavigate: () => void;
-  onFullscreen: () => void;
+  onExpand: () => void;
 }) {
   const scheduledDurationSec = meeting.scheduled_duration * 60;
   const elapsedTotal = elapsed?.total ?? 0;
@@ -341,37 +351,35 @@ function MeetingCard({
 
   return (
     <div
-      className={`group relative flex flex-1 cursor-pointer flex-col overflow-hidden rounded-2xl border-0 bg-white/[0.04] backdrop-blur-sm transition-all duration-200 hover:bg-white/[0.07] ${
-        active ? (timerRunning ? "ring-2 ring-emerald-400/60 shadow-lg shadow-emerald-500/10" : "ring-1 ring-amber-400/30") : ""
+      className={`group relative flex flex-1 cursor-pointer flex-col overflow-hidden rounded-2xl border bg-white/[0.04] backdrop-blur-sm transition-all duration-200 hover:bg-white/[0.07] ${
+        active
+          ? timerRunning
+            ? "border-amber-500/40 shadow-lg shadow-amber-500/10"
+            : "border-white/10"
+          : "border-white/5"
       }`}
-      onClick={onNavigate}
+      onClick={onExpand}
     >
-      {active && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onFullscreen(); }}
-          className="absolute right-4 top-4 z-10 rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white/60 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-white/20 hover:text-white"
-        >
-          Fullscreen
-        </button>
-      )}
-
       <CardContent className="flex flex-1 flex-col p-6">
+        {/* Status badge */}
         <div className="flex items-center gap-3">
           {active && (
-            <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className={`flex h-2.5 w-2.5 rounded-full ${timerRunning ? "bg-amber-400 animate-pulse" : "bg-white/20"}`} />
           )}
           <Badge
             variant={active ? "default" : "secondary"}
-            className={`px-3 py-1 text-sm ${active ? "bg-emerald-500" : ""}`}
+            className={`px-3 py-1 text-sm ${active ? "bg-amber-500 hover:bg-amber-500" : ""}`}
           >
             {active ? "LIVE" : formatDate(meeting.scheduled_at)}
           </Badge>
         </div>
 
+        {/* Title */}
         <h2 className="mt-3 text-3xl font-bold leading-tight tracking-tight">
           {meeting.title}
         </h2>
 
+        {/* Meta */}
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-base text-white/60">
           <span>{formatTime(meeting.scheduled_at)}</span>
           <span className="text-white/20">&middot;</span>
@@ -393,10 +401,11 @@ function MeetingCard({
 
         <div className="flex-1" />
 
+        {/* Timer display - matching normal timer card style */}
         {hasTimer && (
-          <div className="mt-5 rounded-xl bg-white/[0.03] px-5 py-4 text-center">
+          <div className="text-center">
             <p className={`font-mono font-bold tabular-nums tracking-tight ${
-              timerRunning ? "text-5xl text-white" : "text-4xl text-white/40"
+              timerRunning ? "text-5xl text-amber-400" : "text-4xl text-white/30"
             }`}>
               {formatDuration(elapsedTotal)}
             </p>
@@ -408,6 +417,7 @@ function MeetingCard({
           </div>
         )}
 
+        {/* Agenda */}
         {meeting.agenda_items && meeting.agenda_items.length > 0 && (
           <div className="mt-4 space-y-1">
             <p className="text-xs font-medium uppercase tracking-wider text-white/30">Agenda</p>
@@ -430,19 +440,19 @@ function MeetingCard({
           </div>
         )}
 
+        {/* Room band */}
         {meeting.room && (
           <div className={`-mx-6 -mb-6 mt-4 flex items-center gap-2.5 px-6 py-3.5 text-base font-semibold ${
             timerRunning
-              ? "bg-emerald-500/15 text-emerald-300"
-              : active ? "bg-amber-500/10 text-amber-300/70"
-              : "bg-white/[0.02] text-white/40"
+              ? "bg-amber-500/10 text-amber-400"
+              : active ? "bg-white/[0.03] text-white/50"
+              : "bg-white/[0.02] text-white/30"
           }`}>
             <span className={`h-2.5 w-2.5 rounded-full ${
-              timerRunning ? "bg-emerald-400 animate-pulse" : "bg-white/15"
+              timerRunning ? "bg-amber-400 animate-pulse" : "bg-white/15"
             }`} />
             {meeting.room.name}
-            {timerRunning && <span className="text-sm font-normal"> \u2022 Running</span>}
-            {!timerRunning && active && <span className="text-sm font-normal"> \u2022 Paused</span>}
+            {timerRunning && <span className="text-sm font-normal">\u2022 Running</span>}
           </div>
         )}
       </CardContent>
@@ -452,7 +462,7 @@ function MeetingCard({
 
 function QrFallbackCard({ meeting, qrDataUrl }: { meeting: TvMeeting; qrDataUrl: string }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-5 rounded-2xl border-0 bg-white/[0.02] backdrop-blur-sm">
+    <div className="flex flex-1 flex-col items-center justify-center gap-5 rounded-2xl border border-white/5 bg-white/[0.02] backdrop-blur-sm">
       <p className="text-center text-lg text-white/40">Scan to join</p>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
