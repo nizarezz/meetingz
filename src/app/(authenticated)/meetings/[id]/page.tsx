@@ -133,6 +133,7 @@ export default function MeetingDetailPage({
   const [outcomeNoteText, setOutcomeNoteText] = useState("");
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (existingNote) setOutcomeNoteText(existingNote.text);
   }, [existingNote]);
 

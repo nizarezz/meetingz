@@ -43,6 +43,7 @@ export function useElapsedTime(data: TimerData | undefined | null) {
 
   useEffect(() => {
     if (!data?.is_running && !data?.is_timer_running) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setElapsed(computeElapsed(data ?? {}));
       return;
     }

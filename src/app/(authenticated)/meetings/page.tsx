@@ -529,6 +529,7 @@ function QrDialog({ open, onOpenChange, url }: { open: boolean; onOpenChange: (v
   const [dataUrl, setDataUrl] = useState("");
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!open || !url) { setDataUrl(""); return; }
     QRCode.toDataURL(url, {
       width: 280, margin: 1, color: { dark: "#4a7c59", light: "#ffffff" },
