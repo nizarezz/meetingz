@@ -9,6 +9,7 @@ export { participantsApi } from "./participants";
 export { actionItemsApi } from "./action-items";
 export { outcomeNotesApi } from "./outcome-notes";
 export { commentsApi } from "./comments";
+export { roomsApi } from "./rooms";
 export { notificationsApi } from "./notifications";
 
 export type {
@@ -24,6 +25,8 @@ export type {
   ParticipantRole,
   Team,
   Template,
+  Room,
+  RoomConflict,
   NotificationPreferences,
   MeetingStatus,
   AgendaItem,

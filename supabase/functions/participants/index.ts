@@ -30,7 +30,7 @@ Deno.serve(async (req: Request) => {
       const { data, error, count } = await caller.client
         .from("meeting_participants")
         .select(`
-          id, user_id, role, department, notified_at, created_at,
+          id, meeting_id, user_id, role, created_at,
           users ( id, name, email, department )
         `, { count: "exact" })
         .eq("meeting_id", meetingId)
@@ -47,7 +47,7 @@ Deno.serve(async (req: Request) => {
       checkRateLimit(`participants:create:${caller.team_id}`, 30, "participant adds");
 
       const body = await req.json();
-      const { meeting_id, user_id, role = "attendee", department } = body;
+      const { meeting_id, user_id, role = "attendee" } = body;
 
       if (!meeting_id || !user_id) return err("meeting_id and user_id are required");
       if (!VALID_ROLES.includes(role)) {
@@ -80,11 +80,10 @@ Deno.serve(async (req: Request) => {
           meeting_id,
           user_id,
           role,
-          department: department ?? null,
           team_id:    caller.team_id,
         })
         .select(`
-          id, user_id, role, department,
+          id, user_id, role,
           users ( id, name, email )
         `)
         .single();
@@ -114,7 +113,7 @@ Deno.serve(async (req: Request) => {
         .eq("id", id)
         .eq("team_id", caller.team_id)
         .select(`
-          id, user_id, role, department,
+          id, user_id, role,
           users ( id, name, email )
         `)
         .single();

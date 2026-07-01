@@ -6,6 +6,7 @@ import { useTeam, useUpdateTeam } from "@/lib/hooks/use-teams";
 import { useUsers, useApproveUser, useDeactivateUser, useInviteUser } from "@/lib/hooks/use-users";
 import { useTemplates, useDeleteTemplate } from "@/lib/hooks/use-templates";
 import { useDepartments } from "@/lib/hooks/use-departments";
+import { useRooms, useCreateRoom, useUpdateRoom, useDeleteRoom } from "@/lib/hooks/use-rooms";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -19,12 +20,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import {
   Building2, Users, FileText, Plus, Loader2, Check, X,
-  ChevronLeft, ChevronRight, Trash2, Save,
+  ChevronLeft, ChevronRight, Trash2, Save, DoorOpen,
 } from "lucide-react";
 import type { UserRole } from "@/lib/types";
 import { ADMIN_ROLES, SUPER_ADMIN_ROLES } from "@/lib/types";
@@ -50,6 +51,10 @@ export default function OrganizationPage() {
   const { data: usersPage, isLoading: usersLoading } = useUsers({ page: usersPageNum, perPage: PER_PAGE });
   const { data: templates, isLoading: templatesLoading } = useTemplates();
   const { data: departments } = useDepartments();
+  const { data: rooms } = useRooms();
+  const createRoom = useCreateRoom();
+  const updateRoom = useUpdateRoom();
+  const deleteRoom = useDeleteRoom();
   const updateTeam = useUpdateTeam();
   const approveUser = useApproveUser();
   const deactivateUser = useDeactivateUser();
@@ -106,20 +111,16 @@ export default function OrganizationPage() {
     );
   }
 
-  function handleDeleteTemplate(id: string, e: React.MouseEvent) {
+  function handleDeleteTemplate(id: string, name: string, e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    if (confirm("Delete this template?")) {
-      deleteTemplate.mutate(id, {
-        onSuccess: () => toast.success("Template deleted"),
-        onError: (err) => toast.error(err.message),
-      });
-    }
+    setTemplateToDelete({ id, name });
   }
 
   const isAdmin = ADMIN_ROLES.includes(role as UserRole);
   const isSuperAdmin = SUPER_ADMIN_ROLES.includes(role as UserRole);
   const [orgTab, setOrgTab] = useState("overview");
+  const [templateToDelete, setTemplateToDelete] = useState<{ id: string; name: string } | null>(null);
 
   if (teamLoading || usersLoading || templatesLoading) {
     return (
@@ -171,9 +172,9 @@ export default function OrganizationPage() {
             </Card>
             <Card className="bg-surface shadow-sm border-outline-variant/20">
               <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
-                <Building2 className="h-8 w-8 text-primary" />
-                <p className="font-display text-3xl font-bold">{departments?.length ?? 0}</p>
-                <p className="text-sm text-muted-foreground">Departments</p>
+                <DoorOpen className="h-8 w-8 text-primary" />
+                <p className="font-display text-3xl font-bold">{rooms?.filter((r) => r.is_active)?.length ?? 0}</p>
+                <p className="text-sm text-muted-foreground">Rooms</p>
               </CardContent>
             </Card>
           </div>
@@ -240,6 +241,56 @@ export default function OrganizationPage() {
                   <Input name="dept-name" placeholder="New department name" className="flex-1 h-9" required />
                   <Button type="submit" size="sm" className="h-9" disabled={createDepartment.isPending}>
                     {createDepartment.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    Add
+                  </Button>
+                </form>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-surface shadow-sm border-outline-variant/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <DoorOpen className="h-5 w-5 text-primary" />
+                Rooms / Halls
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {rooms?.length ? rooms.map((r) => (
+                  <div key={r.id} className="flex items-center gap-2">
+                    <Badge variant={r.is_active ? "default" : "secondary"} className="px-3 py-1">
+                      {r.name}
+                    </Badge>
+                    {isAdmin && r.is_active && (
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => { if (confirm(`Deactivate room "${r.name}"?`)) updateRoom.mutate({ id: r.id, patch: { is_active: false } }, { onError: async (e) => toast.error(await getErrorMsg(e)) }); }}>
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                    {isSuperAdmin && !r.is_active && (
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-primary" onClick={() => updateRoom.mutate({ id: r.id, patch: { is_active: true } }, { onError: async (e) => toast.error(await getErrorMsg(e)) })}>
+                        <Check className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                )) : (
+                  <p className="text-sm text-muted-foreground">No rooms yet</p>
+                )}
+              </div>
+              {isAdmin && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const fd = new FormData(e.currentTarget);
+                    const name = fd.get("room-name") as string;
+                    if (name?.trim()) createRoom.mutate(name.trim(), { onError: async (e) => toast.error(await getErrorMsg(e)) });
+                    e.currentTarget.reset();
+                  }}
+                  className="flex gap-2"
+                >
+                  <Input name="room-name" placeholder="New room name" className="flex-1 h-9" required />
+                  <Button type="submit" size="sm" className="h-9" disabled={createRoom.isPending}>
+                    {createRoom.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                     Add
                   </Button>
                 </form>
@@ -363,12 +414,12 @@ export default function OrganizationPage() {
                         {u.is_approved ? (
                           <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50">Approved</Badge>
                         ) : isAdmin ? (
-                          <Button size="sm" variant="outline" onClick={() => approveUser.mutate(u.id)}>
+                          <Button size="sm" variant="outline" onClick={() => approveUser.mutate(u.id, { onError: async (e) => toast.error(await getErrorMsg(e)) })}>
                             <Check className="mr-1 h-3 w-3" /> Approve
                           </Button>
                         ) : null}
                         {(isSuperAdmin || (isAdmin && !ADMIN_ROLES.includes(u.role as UserRole))) && (
-                          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm("Deactivate this user?")) deactivateUser.mutate(u.id); }}>
+                          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm("Deactivate this user?")) deactivateUser.mutate(u.id, { onError: async (e) => toast.error(await getErrorMsg(e)) }); }}>
                             <X className="h-3 w-3" />
                           </Button>
                         )}
@@ -428,7 +479,7 @@ export default function OrganizationPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-destructive"
-                            onClick={(e) => handleDeleteTemplate(t.id, e)}
+                            onClick={(e) => handleDeleteTemplate(t.id, t.name, e)}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -453,6 +504,27 @@ export default function OrganizationPage() {
             </div>
           )}
         </div>}
+
+      <Dialog open={!!templateToDelete} onOpenChange={(v) => { if (!v) setTemplateToDelete(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete template</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete &ldquo;{templateToDelete?.name}&rdquo;? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setTemplateToDelete(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => {
+              if (!templateToDelete) return;
+              deleteTemplate.mutate(templateToDelete.id, {
+                onSuccess: () => { toast.success("Template deleted"); setTemplateToDelete(null); },
+                onError: (err) => { toast.error(err.message); setTemplateToDelete(null); },
+              });
+            }}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

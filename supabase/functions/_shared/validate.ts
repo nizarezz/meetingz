@@ -1,4 +1,5 @@
 import { z } from "npm:zod";
+import { corsHeaders } from "./cors.ts";
 
 export function parse<T>(schema: z.ZodType<T>, body: unknown): T {
   const result = schema.safeParse(body);
@@ -6,7 +7,7 @@ export function parse<T>(schema: z.ZodType<T>, body: unknown): T {
     const first = result.error.issues[0];
     throw new Response(
       JSON.stringify({ error: first?.message ?? "Validation failed" }),
-      { status: 400, headers: { "Content-Type": "application/json" } },
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
   return result.data;
@@ -17,6 +18,7 @@ export const createMeetingSchema = z.object({
   department: z.string().min(1, "department is required"),
   meeting_type: z.string().min(1, "meeting_type is required"),
   scheduled_duration: z.number().int().positive("scheduled_duration must be positive"),
+  room_id: z.string().uuid().optional().nullable(),
   vibe: z.string().optional(),
   agenda_items: z.array(z.object({
     title: z.string().min(1),
@@ -39,6 +41,7 @@ export const updateMeetingSchema = z.object({
   status: z.string().optional(),
   department: z.string().optional(),
   meeting_type: z.string().optional(),
+  room_id: z.string().uuid().optional().nullable(),
   vibe: z.string().optional(),
   scheduled_duration: z.number().int().positive().optional(),
   scheduled_at: z.string().optional(),
@@ -82,8 +85,8 @@ export const createOutcomeSchema = z.object({
 export const createTemplateSchema = z.object({
   name: z.string().min(1, "name is required"),
   description: z.string().optional(),
-  department: z.string().min(1, "department is required"),
-  meeting_type: z.string().min(1, "meeting_type is required"),
+  department: z.string().optional().default(""),
+  meeting_type: z.string().optional().default(""),
   agenda_items: z.array(z.object({
     title: z.string().min(1),
     duration: z.number().int().min(0).default(0),
@@ -107,7 +110,6 @@ export const updateTeamSchema = z.object({
 export const updateProfileSchema = z.object({
   name: z.string().optional(),
   department: z.string().optional(),
-  fcm_token: z.string().optional(),
 });
 
 export const updatePreferencesSchema = z.object({

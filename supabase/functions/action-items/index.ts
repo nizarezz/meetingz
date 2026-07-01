@@ -71,10 +71,20 @@ Deno.serve(async (req: Request) => {
 
     // --- POST (create) ---
     if (req.method === "POST") {
-      requireRole(caller, ADMIN_ROLES);
-
       const body = await req.json().catch(() => ({}));
       const parsed = parse(createActionItemSchema, body);
+
+      const { data: meeting } = await svc
+        .from("meetings")
+        .select("id, created_by, facilitator_id, status")
+        .eq("id", parsed.meeting_id)
+        .single();
+      if (!meeting) return err("Meeting not found", 404);
+
+      const isHost = meeting.facilitator_id === caller.id || meeting.created_by === caller.id;
+      if (!isHost && !ADMIN_ROLES.includes(caller.role as any)) {
+        return err("Only the host or an admin can create action items", 403);
+      }
 
       await requireMeetingOpen(parsed.meeting_id, svc);
 
@@ -190,8 +200,8 @@ Deno.serve(async (req: Request) => {
       if (fetchErr || !existing) return err("Not found", 404);
 
       if (action === "done") {
-        if (existing.assignee_id !== caller.id) {
-          return err("Only the assignee can mark this as done", 403);
+        if (existing.assignee_id !== caller.id && caller.role !== "super_admin") {
+          return err("Only the assignee or a super admin can mark this as done", 403);
         }
         if (existing.status === "done" || existing.status === "blocked") {
           return err(`Cannot mark a ${existing.status} item as done`, 409);

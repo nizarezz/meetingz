@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
+import { supabase } from "@/lib/supabase/client";
 import { ADMIN_ROLES } from "@/lib/types";
 import type { UserRole } from "@/lib/types";
 import { useForm, Controller } from "react-hook-form";
@@ -10,6 +11,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useCreateMeeting } from "@/lib/hooks/use-meetings";
 import { useDepartments } from "@/lib/hooks/use-departments";
+import { useRooms } from "@/lib/hooks/use-rooms";
 import { useTemplates } from "@/lib/hooks/use-templates";
 import { useUsers } from "@/lib/hooks/use-users";
 import { Button } from "@/components/ui/button";
@@ -17,9 +19,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, X, Plus, GripVertical, Timer, Search as SearchIcon, Info, Users, Mail, ListChecks } from "lucide-react";
+import { Loader2, X, Plus, GripVertical, Timer, Search as SearchIcon, Info, Users, Mail, ListChecks, AlertTriangle, DoorOpen, Clock, Calendar } from "lucide-react";
 import type { AgendaItem } from "@/lib/types";
 import { ScheduleCreateEditor } from "@/components/schedule-editor";
+import { format } from "date-fns";
 
 const meetingSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -46,6 +49,7 @@ export default function NewMeetingPage() {
   }, [role, router]);
   const createMeeting = useCreateMeeting();
   const { data: departments } = useDepartments();
+  const { data: rooms } = useRooms();
   const { data: templates } = useTemplates();
   const { data: usersData } = useUsers({ perPage: 100 });
 
@@ -74,6 +78,7 @@ export default function NewMeetingPage() {
   ]);
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [participantIds, setParticipantIds] = useState<string[]>([]);
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [guestEmail, setGuestEmail] = useState("");
   const [guestEmails, setGuestEmails] = useState<string[]>([]);
   const [userSearch, setUserSearch] = useState("");
@@ -140,14 +145,82 @@ export default function NewMeetingPage() {
   const todayStr = useMemo(() => now.toISOString().slice(0, 10), [now]);
   const nowTimeStr = useMemo(() => now.toTimeString().slice(0, 5), [now]);
 
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const selectedDate = watch("date");
-  const timeMin = selectedDate === todayStr ? nowTimeStr : undefined;
+  const fv = { date: watch("date"), time: watch("time"), duration: watch("duration") };
+  const timeMin = fv.date === todayStr ? nowTimeStr : undefined;
+
+  const [inlineConflicts, setInlineConflicts] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (selectedRoomId && fv.date) {
+      const startTime = fv.time
+        ? new Date(`${fv.date}T${fv.time}`).getTime()
+        : new Date(`${fv.date}T09:00`).getTime();
+      if (isNaN(startTime)) { setInlineConflicts([]); return; }
+      const durationMs = (parseInt(fv.duration ?? "60", 10) || 60) * 60 * 1000;
+      const endTime = startTime + durationMs;
+      supabase
+        .from("meetings")
+        .select("id, title, scheduled_at, scheduled_duration")
+        .eq("room_id", selectedRoomId)
+        .is("deleted_at", null)
+        .not("status", "eq", "cancelled")
+        .lt("scheduled_at", new Date(endTime).toISOString())
+        .then(({ data, error }) => {
+          if (error) { console.error("inline room conflict error", error); return; }
+          setInlineConflicts(
+            (data ?? [])
+              .filter((m) => {
+                const mEnd = new Date(m.scheduled_at).getTime() + m.scheduled_duration * 1000;
+                return mEnd > startTime;
+              })
+              .map((c) => {
+                const s = format(new Date(c.scheduled_at), "h:mm a");
+                const e = format(new Date(c.scheduled_at).getTime() + c.scheduled_duration * 1000, "h:mm a");
+                return `${s}\u2013${e} for "${c.title}"`;
+              }),
+          );
+        });
+    } else {
+      setInlineConflicts([]);
+    }
+  }, [selectedRoomId, fv.date, fv.time, fv.duration]);
 
   const totalMinutes = useMemo(
     () => Math.round(agendaItems.reduce((s, a) => s + a.duration, 0) / 60),
     [agendaItems],
   );
+
+  function handleRoomConflictCheck(date: string, time: string, duration: string) {
+    if (!selectedRoomId || !date) return;
+    const startTime = time
+      ? new Date(`${date}T${time}`).getTime()
+      : new Date(`${date}T09:00`).getTime();
+    if (isNaN(startTime)) return;
+    const durationMs = (parseInt(duration, 10) || 60) * 60 * 1000;
+    const endTime = startTime + durationMs;
+    supabase
+      .from("meetings")
+      .select("id, title, scheduled_at, scheduled_duration")
+      .eq("room_id", selectedRoomId)
+      .is("deleted_at", null)
+      .not("status", "eq", "cancelled")
+      .lt("scheduled_at", new Date(endTime).toISOString())
+      .then(({ data, error }) => {
+        if (error) { console.error("room conflict query error", error); return; }
+        const conflicts = (data ?? []).filter((m) => {
+          const mEnd = new Date(m.scheduled_at).getTime() + m.scheduled_duration * 1000;
+          return mEnd > startTime;
+        });
+        if (conflicts.length === 0) return;
+        toast.warning(
+          `Room conflict: ${conflicts.map((c) => {
+            const s = format(new Date(c.scheduled_at), "h:mm a");
+            const e = format(new Date(c.scheduled_at).getTime() + c.scheduled_duration * 1000, "h:mm a");
+            return `${s}\u2013${e} for "${c.title}"`;
+          }).join("; ")}`,
+        );
+      });
+  }
 
   function saveAsDraft(data: MeetingFormData) {
     const cleanAgenda = agendaItems.filter((a) => a.title.trim());
@@ -160,6 +233,8 @@ export default function NewMeetingPage() {
       ? parseInt(data.duration, 10) * 60
       : cleanAgenda.reduce((sum, a) => sum + a.duration, 0);
 
+    if (data.date) handleRoomConflictCheck(data.date, data.time ?? "", data.duration ?? "60");
+
     createMeeting.mutate(
       {
         title: data.title.trim(),
@@ -167,6 +242,7 @@ export default function NewMeetingPage() {
         department: data.department ?? "",
         meeting_type: data.meetingType ?? "",
         scheduled_duration: scheduledDuration,
+        room_id: selectedRoomId,
         agenda_items: cleanAgenda,
         participants: participantIds.map((userId) => ({ user_id: userId, role: "attendee" as const })),
       },
@@ -204,6 +280,8 @@ export default function NewMeetingPage() {
       ? parseInt(data.duration, 10) * 60
       : cleanAgenda.reduce((sum, a) => sum + a.duration, 0);
 
+    if (data.date) handleRoomConflictCheck(data.date, data.time ?? "", data.duration ?? "60");
+
     createMeeting.mutate(
       {
         title: data.title.trim(),
@@ -211,6 +289,7 @@ export default function NewMeetingPage() {
         department: data.department ?? "",
         meeting_type: data.meetingType ?? "",
         scheduled_duration: scheduledDuration,
+        room_id: selectedRoomId,
         scheduled_at: scheduledAt,
         agenda_items: cleanAgenda,
         participants: participantIds.map((userId) => ({ user_id: userId, role: "attendee" as const })),
@@ -346,6 +425,31 @@ export default function NewMeetingPage() {
                   placeholder="e.g. Standup, Review"
                   className="bg-surface-container-low border-outline-variant/50 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary/50"
                 />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-bold text-muted-foreground">Room / Hall</Label>
+                <Select value={selectedRoomId ?? ""} onValueChange={(v) => setSelectedRoomId(v || null)}>
+                  <SelectTrigger className="bg-surface-container-low border-outline-variant/50 rounded-lg px-4 py-3">
+                    <SelectValue placeholder="No room" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">No room</SelectItem>
+                    {(rooms ?? []).filter((r) => r.is_active).map((r) => (
+                      <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {inlineConflicts.length > 0 && selectedRoomId && (
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <div className="flex-1">
+                      <span className="font-medium">Room conflict: </span>
+                      {inlineConflicts.map((t, i) => (
+                        <span key={i}>{t}{i < inlineConflicts.length - 1 ? "; " : ""}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </section>

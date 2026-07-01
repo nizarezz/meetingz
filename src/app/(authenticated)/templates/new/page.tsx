@@ -72,8 +72,8 @@ export default function NewTemplatePage() {
       {
         name: data.name.trim(),
         description: data.description?.trim() || undefined,
-        department: data.department || undefined,
-        meeting_type: data.meetingType || undefined,
+        department: data.department || "",
+        meeting_type: data.meetingType || "",
         agenda_items: cleanAgenda,
       },
       {

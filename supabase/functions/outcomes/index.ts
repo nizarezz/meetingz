@@ -1,6 +1,6 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
-import { resolveCaller, requireRole, ADMIN_ROLES } from "../_shared/auth.ts";
+import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { parse, createOutcomeSchema } from "../_shared/validate.ts";
 import { audit } from "../_shared/audit.ts";
@@ -84,7 +84,26 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "POST") {
-      requireRole(caller, ADMIN_ROLES);
+      const svc = serviceClient();
+
+      const { data: meeting, error: meetingErr } = await caller.client
+        .from("meetings")
+        .select("id, title, status, team_id, created_by, facilitator_id")
+        .eq("id", meetingId)
+        .is("deleted_at", null)
+        .single();
+
+      if (meetingErr || !meeting) return err("Meeting not found", 404);
+      if (meeting.team_id !== caller.team_id) return err("Forbidden", 403);
+      if (meeting.status === "cancelled" || meeting.status === "logged") {
+        return err("Can only save outcomes for meetings that haven't ended", 409);
+      }
+
+      const isHost = meeting.facilitator_id === caller.id || meeting.created_by === caller.id;
+      if (!isHost && !ADMIN_ROLES.includes(caller.role as any)) {
+        return err("Only the host or an admin can save outcomes", 403);
+      }
+
       checkRateLimit(`outcomes:create:${caller.team_id}`, 30, "outcome creates");
 
       const body = await req.json().catch(() => ({}));
@@ -94,21 +113,6 @@ Deno.serve(async (req: Request) => {
       if (!primary_outcome) return err("primary_outcome is required");
       if (!VALID_OUTCOMES.includes(primary_outcome)) {
         return err(`primary_outcome must be one of: ${VALID_OUTCOMES.join(", ")}`);
-      }
-
-      const svc = serviceClient();
-
-      const { data: meeting, error: meetingErr } = await caller.client
-        .from("meetings")
-        .select("id, title, status, team_id")
-        .eq("id", meetingId)
-        .is("deleted_at", null)
-        .single();
-
-      if (meetingErr || !meeting) return err("Meeting not found", 404);
-      if (meeting.team_id !== caller.team_id) return err("Forbidden", 403);
-      if (meeting.status === "cancelled" || meeting.status === "logged") {
-        return err("Can only save outcomes for meetings that haven't ended", 409);
       }
 
       const { data: outcome, error: insertErr } = await svc
@@ -126,7 +130,7 @@ Deno.serve(async (req: Request) => {
 
       if (action_items.length > 0) {
         const rows = action_items.map((a: {
-          text: string; assignee_id?: string; assignee_email?: string; due_date?: string; done?: boolean
+          text: string; assignee_id?: string; assignee_email?: string; due_date?: string;
         }) => ({
           outcome_id: outcome.id,
           meeting_id: meetingId,
@@ -167,11 +171,23 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "PATCH") {
-      requireRole(caller, ADMIN_ROLES);
+      const { data: outcome, error: fetchErr } = await caller.client
+        .from("outcomes")
+        .select("id, meeting_id, primary_outcome, logged_by, team_id, created_at")
+        .eq("meeting_id", meetingId)
+        .maybeSingle();
+
+      if (fetchErr) return err(fetchErr.message);
+      if (!outcome) return err("No outcome found for this meeting", 404);
+
+      const isLoggedBy = outcome.logged_by === caller.id;
+      if (!isLoggedBy && !ADMIN_ROLES.includes(caller.role as any)) {
+        return err("Only the user who logged the outcome or an admin can update it", 403);
+      }
+
       checkRateLimit(`outcomes:update:${caller.team_id}`, 30, "outcome updates");
       const body = await req.json();
       const { primary_outcome, action_items } = body;
-      const svc = serviceClient();
 
       if (primary_outcome && !VALID_OUTCOMES.includes(primary_outcome)) {
         return err(`primary_outcome must be one of: ${VALID_OUTCOMES.join(", ")}`);
@@ -183,15 +199,6 @@ Deno.serve(async (req: Request) => {
       if (Object.keys(patch).length === 0 && action_items === undefined) {
         return err("No fields to update");
       }
-
-      const { data: outcome, error: fetchErr } = await caller.client
-        .from("outcomes")
-        .select("id, meeting_id, primary_outcome, logged_by, team_id, created_at")
-        .eq("meeting_id", meetingId)
-        .maybeSingle();
-
-      if (fetchErr) return err(fetchErr.message);
-      if (!outcome) return err("No outcome found for this meeting", 404);
 
       if (Object.keys(patch).length > 0) {
         const { error: updateErr } = await svc
@@ -206,7 +213,7 @@ Deno.serve(async (req: Request) => {
 
         if (action_items.length > 0) {
           const rows = action_items.map((a: {
-            text: string; assignee_id?: string; assignee_email?: string; due_date?: string; done?: boolean
+            text: string; assignee_id?: string; assignee_email?: string; due_date?: string;
           }) => ({
             outcome_id: outcome.id,
             meeting_id: meetingId,
@@ -251,6 +258,30 @@ Deno.serve(async (req: Request) => {
 
       await audit(caller.id, caller.team_id, "outcome_update", "outcome", meetingId, { primary_outcome: patch.primary_outcome });
       return ok({ ...outcome, action_items: items ?? [] });
+    }
+
+    if (req.method === "DELETE") {
+      requireRole(caller, ADMIN_ROLES);
+      checkRateLimit(`outcomes:delete:${caller.team_id}`, 10, "outcome deletions");
+
+      const svc = serviceClient();
+
+      const { data: outcome, error: fetchErr } = await caller.client
+        .from("outcomes")
+        .select("id, meeting_id")
+        .eq("meeting_id", meetingId)
+        .maybeSingle();
+
+      if (fetchErr) return err(fetchErr.message);
+      if (!outcome) return err("No outcome found for this meeting", 404);
+
+      await svc.from("action_items").delete().eq("outcome_id", outcome.id);
+      await svc.from("outcome_notes").delete().eq("outcome_id", outcome.id);
+      const { error: delErr } = await svc.from("outcomes").delete().eq("id", outcome.id);
+      if (delErr) return err(delErr.message);
+
+      await audit(caller.id, caller.team_id, "outcome_delete", "outcome", outcome.id, { meeting_id: meetingId });
+      return ok({ deleted: true });
     }
 
     return err("Method not allowed", 405);

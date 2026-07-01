@@ -73,20 +73,55 @@ DO $$ BEGIN
 END $$;
 
 -- 5. Expose timer state ONLY via RLS — remove meetings, outcomes, action_items from public Realtime
---    (keeping meeting_timer_state for authenticated users only)
--- Note: supabase_realtime publication tables must be managed carefully.
--- This DROP is safe because the publication is just a broadcast filter;
--- RLS still applies on the tables themselves.
-ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS meetings;
-ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS outcomes;
-ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS action_items;
-ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS action_item_activity;
-ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS action_item_reminders;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'meetings') THEN
+    ALTER PUBLICATION supabase_realtime DROP TABLE meetings;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'outcomes') THEN
+    ALTER PUBLICATION supabase_realtime DROP TABLE outcomes;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'action_items') THEN
+    ALTER PUBLICATION supabase_realtime DROP TABLE action_items;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'action_item_activity') THEN
+    ALTER PUBLICATION supabase_realtime DROP TABLE action_item_activity;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'action_item_reminders') THEN
+    ALTER PUBLICATION supabase_realtime DROP TABLE action_item_reminders;
+  END IF;
+END $$;
 
 -- 6. Drop action_items.done — fully replaced by action_items.status
 DROP TRIGGER IF EXISTS action_items_sync_done_status ON action_items CASCADE;
 DROP TRIGGER IF EXISTS action_items_sync_done ON action_items CASCADE;
 DROP FUNCTION IF EXISTS sync_action_item_done_status;
+
+-- Migrate trigger that references done column before dropping it
+CREATE OR REPLACE FUNCTION schedule_action_item_reminder()
+RETURNS trigger AS $$
+DECLARE
+  reminder_time timestamptz;
+BEGIN
+  DELETE FROM action_item_reminders WHERE action_item_id = NEW.id AND sent = false;
+  IF NEW.assignee_id IS NOT NULL AND NEW.due_date IS NOT NULL AND NEW.status <> 'done' THEN
+    reminder_time := NEW.due_date::timestamptz - interval '24 hours';
+    IF reminder_time > now() THEN
+      INSERT INTO action_item_reminders (action_item_id, remind_at) VALUES (NEW.id, reminder_time);
+    END IF;
+    reminder_time := NEW.due_date::timestamptz - interval '1 hour';
+    IF reminder_time > now() THEN
+      INSERT INTO action_item_reminders (action_item_id, remind_at) VALUES (NEW.id, reminder_time);
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS action_items_schedule_reminder ON action_items CASCADE;
+CREATE TRIGGER action_items_schedule_reminder
+  AFTER INSERT OR UPDATE OF assignee_id, due_date, status ON action_items
+  FOR EACH ROW EXECUTE FUNCTION schedule_action_item_reminder();
+
 ALTER TABLE action_items DROP COLUMN IF EXISTS done;
 
 -- 7. Fix blocked_by: add missing foreign key reference to users(id)

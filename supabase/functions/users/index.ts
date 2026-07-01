@@ -48,7 +48,7 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET" && id) {
       const { data, error } = await caller.client
         .from("users")
-        .select("id, email, name, role, department, is_approved, fcm_token, created_at")
+        .select("id, email, name, role, department, is_approved, created_at")
         .eq("id", id)
         .is("deleted_at", null)
         .single();
@@ -61,7 +61,7 @@ Deno.serve(async (req: Request) => {
       if (caller.id !== id) return err("You can only update your own profile", 403);
 
       const body = await req.json();
-      const allowed = ["name", "department", "fcm_token"];
+      const allowed = ["name", "department"];
       const patch: Record<string, unknown> = {};
 
       for (const key of allowed) {
@@ -196,27 +196,34 @@ Deno.serve(async (req: Request) => {
       let authUserId: string | null = null;
       let tempPassword = "";
 
-      // Check if user already exists in auth.users
-      const { data: authUsers } = await svc.auth.admin.listUsers();
-      const existingAuthUser = authUsers?.users?.find((u: { email?: string; id: string }) => u.email === email);
+      // Try to create the user in auth.users first (handles duplicates gracefully)
+      tempPassword = crypto.randomUUID().slice(0, 12) + "Tg1!";
+      const { data: newUser, error: createErr } = await svc.auth.admin.createUser({
+        email,
+        password: tempPassword,
+        email_confirm: true,
+      });
 
-      if (existingAuthUser) {
-        authUserId = existingAuthUser.id;
-      } else {
-        tempPassword = crypto.randomUUID().slice(0, 12) + "Tg1!";
-        const { data: newUser, error: inviteErr } = await svc.auth.admin.createUser({
-          email,
-          password: tempPassword,
-          email_confirm: true,
-        });
-
-        if (inviteErr) return err(inviteErr.message);
-        if (!newUser?.user?.id) return err("Failed to create user");
+      if (createErr && createErr.message?.includes("already been registered")) {
+        // User already exists in auth — find them across all pages
+        for (let page = 1; ; page++) {
+          const { data: pageData } = await svc.auth.admin.listUsers(page, 100);
+          if (!pageData?.users?.length) break;
+          const found = pageData.users.find((u: { email?: string; id: string }) => u.email === email);
+          if (found) { authUserId = found.id; break; }
+          if (pageData.users.length < 100) break;
+        }
+        if (!authUserId) return err("User exists in auth but could not be found");
+        tempPassword = ""; // don't expose temp password for existing users
+      } else if (createErr) {
+        return err(createErr.message);
+      } else if (newUser?.user?.id) {
         authUserId = newUser.user.id;
-
         await svc.auth.admin.updateUserById(authUserId, {
           user_metadata: { role, name: displayName, department },
         });
+      } else {
+        return err("Failed to create user");
       }
 
       const { data: profile, error: profileErr } = await svc

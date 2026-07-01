@@ -1,5 +1,5 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
-import { resolveCaller, requireRole, ADMIN_ROLES } from "../_shared/auth.ts";
+import { resolveCaller, requireRole, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { captureException } from "../_shared/sentry.ts";
 
 Deno.serve(async (req: Request) => {
@@ -19,7 +19,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "POST") {
-      requireRole(caller, ADMIN_ROLES);
+      requireRole(caller, SUPER_ADMIN_ROLES);
 
       const body = await req.json().catch(() => ({}));
       const name = (body.name ?? "").trim();

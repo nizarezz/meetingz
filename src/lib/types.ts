@@ -47,7 +47,6 @@ export interface ApiUser {
   created_at: string;
   team_id?: string;
   deleted_at?: string | null;
-  fcm_token?: string | null;
 }
 
 export interface Participant {
@@ -126,6 +125,8 @@ export interface Meeting {
   team_id?: string;
   participants?: Participant[];
   outcomes?: Outcome | Outcome[];
+  room_id?: string | null;
+  room?: { name: string } | null;
   share_token?: string;
   timer_open_to_all?: boolean;
   deleted_at?: string | null;
@@ -148,6 +149,7 @@ export interface TimerState {
   timer_item_started_at: string | null;
   timer_base_total: number;
   timer_base_item: number;
+  version: number;
 }
 
 export interface NotificationPreferences {
@@ -182,6 +184,7 @@ export interface CreateMeetingInput {
   department: string;
   meeting_type: string;
   scheduled_duration: number;
+  room_id?: string | null;
   scheduled_at?: string;
   facilitator_id?: string;
   vibe?: string;
@@ -207,4 +210,18 @@ export interface PaginatedResponse<T> {
 
 export interface Department {
   name: string;
+}
+
+export interface Room {
+  id: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface RoomConflict {
+  id: string;
+  title: string;
+  scheduled_at: string;
+  scheduled_duration: number;
 }

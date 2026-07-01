@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { timerApi } from "@/lib/api";
 
 interface TimerData {
+  is_running?: boolean;
   is_timer_running?: boolean;
   timer_started_at?: string | null;
   timer_item_started_at?: string | null;
@@ -15,7 +16,7 @@ export function computeElapsed(data: TimerData) {
   const baseTotal = data.timer_base_total ?? 0;
   const baseItem = data.timer_base_item ?? 0;
 
-  if (!data.is_timer_running) {
+  if (!data.is_running && !data.is_timer_running) {
     return { total: baseTotal, item: baseItem };
   }
 
@@ -41,8 +42,7 @@ export function useElapsedTime(data: TimerData | undefined | null) {
   });
 
   useEffect(() => {
-    if (!data?.is_timer_running) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!data?.is_running && !data?.is_timer_running) {
       setElapsed(computeElapsed(data ?? {}));
       return;
     }
@@ -50,8 +50,7 @@ export function useElapsedTime(data: TimerData | undefined | null) {
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.is_timer_running]);
+  }, [data?.is_running, data?.is_timer_running]);
 
   return elapsed;
 }

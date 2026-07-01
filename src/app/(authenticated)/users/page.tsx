@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { getErrorMsg } from "@/lib/utils";
 import { Plus, Loader2, Check, X, ChevronLeft, ChevronRight } from "lucide-react";
 import type { UserRole } from "@/lib/types";
 import { ADMIN_ROLES, SUPER_ADMIN_ROLES } from "@/lib/types";
@@ -194,12 +195,12 @@ export default function UsersPage() {
                     {u.is_approved ? (
                       <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50">Approved</Badge>
                     ) : ADMIN_ROLES.includes(role as UserRole) ? (
-                      <Button size="sm" variant="outline" onClick={() => approveUser.mutate(u.id)}>
+                      <Button size="sm" variant="outline" onClick={() => approveUser.mutate(u.id, { onError: async (e) => toast.error(await getErrorMsg(e)) })}>
                         <Check className="mr-1 h-3 w-3" /> Approve
                       </Button>
                     ) : null}
                     {SUPER_ADMIN_ROLES.includes(role as UserRole) && (
-                      <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm("Deactivate this user?")) deactivateUser.mutate(u.id); }}>
+                      <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm("Deactivate this user?")) deactivateUser.mutate(u.id, { onError: async (e) => toast.error(await getErrorMsg(e)) }); }}>
                         <X className="h-3 w-3" />
                       </Button>
                     )}

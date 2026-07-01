@@ -98,11 +98,12 @@ Deno.serve(async (req: Request) => {
           scheduled_duration, actual_duration, status,
           scheduled_at, created_at,
           created_by, facilitator_id,
-          share_token, timer_open_to_all,
+          share_token, timer_open_to_all, room_id,
+          room:rooms!meetings_room_id_fkey(name),
           facilitator:users!facilitator_id(name, email),
           creator:users!created_by(name, email),
           meeting_participants (
-            id, user_id, role, department,
+            id, meeting_id, user_id, role,
             users ( id, name, email )
           ),
           agenda_items ( title, duration, assignee_email, presenter, notes )
@@ -128,23 +129,27 @@ Deno.serve(async (req: Request) => {
           scheduled_duration, actual_duration, status,
           scheduled_at, created_at,
           created_by, facilitator_id, team_id,
-          share_token, deleted_at, updated_at, timer_open_to_all,
+          share_token, deleted_at, updated_at, timer_open_to_all, room_id,
+          room:rooms!meetings_room_id_fkey(name),
           report_snapshot,
           meeting_participants (
-            id, user_id, role, department, notified_at,
+            id, meeting_id, user_id, role,
             users ( id, name, email, department )
           ),
           facilitator:users!facilitator_id(name, email),
           creator:users!created_by(name, email),
-          outcomes ( id, meeting_id, primary_outcome, logged_by, team_id, created_at ),
+          outcomes ( id, meeting_id, primary_outcome, logged_by, team_id, created_at,
+            action_items ( id, text, status, assignee_id, assignee_email, due_date, created_at )
+          ),
           agenda_items ( title, duration, assignee_email, presenter, notes )
         `)
         .eq("id", id)
         .order("sort_order", { foreignTable: "agenda_items", ascending: true })
         .is("deleted_at", null)
-        .single();
+        .maybeSingle();
 
-      if (error) return err(error.message, 404);
+      if (error) return err(error.message, 500);
+      if (!data) return err("Meeting not found", 404);
       return ok(data);
     }
 
@@ -156,11 +161,22 @@ Deno.serve(async (req: Request) => {
       const parsed = parse(createMeetingSchema, body);
       const {
         title, department, meeting_type, vibe,
-        scheduled_duration, agenda_items,
+        scheduled_duration, agenda_items, room_id,
         scheduled_at, facilitator_id, participants,
       } = parsed;
 
       const svc = serviceClient();
+
+      if (room_id) {
+        const { data: room } = await svc
+          .from("rooms")
+          .select("id")
+          .eq("id", room_id)
+          .eq("team_id", caller.team_id)
+          .is("deleted_at", null)
+          .maybeSingle();
+        if (!room) return err("Room not found in your team", 400);
+      }
 
       const { data: meeting, error: meetingErr } = await svc
         .from("meetings")
@@ -169,6 +185,7 @@ Deno.serve(async (req: Request) => {
           department,
           meeting_type,
           vibe,
+          room_id: room_id ?? null,
           scheduled_duration,
           scheduled_at,
           facilitator_id,
@@ -242,10 +259,10 @@ Deno.serve(async (req: Request) => {
       }
 
       const isHost = meeting.facilitator_id === caller.id || meeting.created_by === caller.id;
-      const isSuperAdmin = SUPER_ADMIN_ROLES.includes(caller.role as any);
+      const isAdmin = ADMIN_ROLES.includes(caller.role as any);
 
-      if (!isHost && !isSuperAdmin) {
-        return err("Only the host or a super admin can edit this meeting", 403);
+      if (!isHost && !isAdmin) {
+        return err("Only the host or an admin can edit this meeting", 403);
       }
 
       const body = await req.json().catch(() => ({}));
@@ -368,6 +385,17 @@ Deno.serve(async (req: Request) => {
           .order("sort_order", { ascending: true });
 
         return ok({ ...loggedMeeting, agenda_items: agendaItems ?? [] });
+      }
+
+      if (parsed.room_id) {
+        const { data: room } = await serviceClient()
+          .from("rooms")
+          .select("id")
+          .eq("id", parsed.room_id)
+          .eq("team_id", caller.team_id)
+          .is("deleted_at", null)
+          .maybeSingle();
+        if (!room) return err("Room not found in your team", 400);
       }
 
       const safe = Object.fromEntries(
@@ -498,9 +526,28 @@ Deno.serve(async (req: Request) => {
       requireRole(caller, SUPER_ADMIN_ROLES);
       checkRateLimit(`meetings:delete:${caller.team_id}`, 10, "meeting deletions");
 
-      const { error } = await serviceClient()
+      const svc = serviceClient();
+
+      const { data: existing } = await svc
         .from("meetings")
-        .update({ deleted_at: new Date().toISOString() })
+        .select("id")
+        .eq("id", id)
+        .eq("team_id", caller.team_id)
+        .maybeSingle();
+
+      if (!existing) return err("Meeting not found", 404);
+
+      await svc.from("comments").delete().eq("meeting_id", id);
+      await svc.from("outcome_notes").delete().eq("meeting_id", id);
+      await svc.from("action_items").delete().eq("meeting_id", id);
+      await svc.from("outcomes").delete().eq("meeting_id", id);
+      await svc.from("meeting_participants").delete().eq("meeting_id", id);
+      await svc.from("agenda_items").delete().eq("meeting_id", id);
+      await svc.from("meeting_timer_state").delete().eq("meeting_id", id);
+
+      const { error } = await svc
+        .from("meetings")
+        .delete()
         .eq("id", id)
         .eq("team_id", caller.team_id);
 

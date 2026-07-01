@@ -12,7 +12,7 @@ export const usersApi = {
     return api().get("users", { searchParams }).json<PaginatedResponse<ApiUser>>();
   },
   get: (id: string) => api().get(`users/${id}`).json<ApiUser>(),
-  update: (id: string, patch: Partial<Pick<ApiUser, "name" | "department"> & { fcm_token: string }>) =>
+  update: (id: string, patch: Partial<Pick<ApiUser, "name" | "department">>) =>
     api().patch(`users/${id}`, { json: patch }).json<ApiUser>(),
   approve: (id: string) => api().patch(`users/${id}/approve`).json<ApiUser>(),
   deactivate: (id: string) => api().patch(`users/${id}/deactivate`).json<ApiUser>(),

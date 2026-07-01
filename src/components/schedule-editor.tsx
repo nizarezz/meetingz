@@ -34,14 +34,14 @@ interface DateEditorProps {
 
 export function ScheduleCreateEditor({ date, time, duration, todayStr, timeMin, onSave }: ScheduleCreateEditorProps) {
   const [open, setOpen] = useState(false);
-  const [d, setD] = useState(date ?? todayStr);
-  const [t, setT] = useState(time ?? "09:00");
-  const [dur, setDur] = useState(duration ?? "30");
+  const [d, setD] = useState(date || todayStr);
+  const [t, setT] = useState(time || "09:00");
+  const [dur, setDur] = useState(duration || "30");
 
   function openDialog() {
-    setD(date ?? todayStr);
-    setT(time ?? "09:00");
-    setDur(duration ?? "30");
+    setD(date || todayStr);
+    setT(time || "09:00");
+    setDur(duration || "30");
     setOpen(true);
   }
 

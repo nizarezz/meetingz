@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useTemplates, useDeleteTemplate } from "@/lib/hooks/use-templates";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Plus, FileText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,17 +18,7 @@ export default function TemplatesPage() {
   const { role } = useAuth();
   const { data: templates, isLoading } = useTemplates();
   const deleteTemplate = useDeleteTemplate();
-
-  function handleDelete(id: string, e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (confirm("Delete this template?")) {
-      deleteTemplate.mutate(id, {
-        onSuccess: () => toast.success("Template deleted"),
-        onError: (err) => toast.error(err.message),
-      });
-    }
-  }
+  const [templateToDelete, setTemplateToDelete] = useState<{ id: string; name: string } | null>(null);
 
   if (isLoading) {
     return (
@@ -84,7 +76,7 @@ export default function TemplatesPage() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-destructive"
-                        onClick={(e) => handleDelete(t.id, e)}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setTemplateToDelete({ id: t.id, name: t.name }); }}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -108,6 +100,27 @@ export default function TemplatesPage() {
           ))}
         </div>
       )}
+
+      <Dialog open={!!templateToDelete} onOpenChange={(v) => { if (!v) setTemplateToDelete(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete template</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete &ldquo;{templateToDelete?.name}&rdquo;? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setTemplateToDelete(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => {
+              if (!templateToDelete) return;
+              deleteTemplate.mutate(templateToDelete.id, {
+                onSuccess: () => { toast.success("Template deleted"); setTemplateToDelete(null); },
+                onError: (err) => { toast.error(err.message); setTemplateToDelete(null); },
+              });
+            }}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

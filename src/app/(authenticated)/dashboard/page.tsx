@@ -181,13 +181,16 @@ export default function DashboardPage() {
             {activeMeetings.map((m) => (
               <Link key={m.id} href={`/meetings/${m.id}`}>
                 <Card className="cursor-pointer transition hover:shadow-md">
-                  <CardHeader>
+                  <CardHeader className="flex flex-row items-start justify-between">
                     <CardTitle className="text-base">{m.title}</CardTitle>
+                    <span className="relative flex h-3 w-3">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500" />
+                    </span>
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm text-muted-foreground">
                     <p>{m.department} · {m.meeting_type}</p>
                     <p>{m.agenda_items?.length ?? 0} agenda items</p>
-                     
                   </CardContent>
                 </Card>
               </Link>

@@ -43,7 +43,8 @@ export function useDeleteMeeting() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => meetingsApi.remove(id),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
+      qc.removeQueries({ queryKey: ["meetings", id] });
       qc.invalidateQueries({ queryKey: ["meetings"] });
     },
   });

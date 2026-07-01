@@ -1,14 +1,15 @@
 "use client";
 
-import { use, useState, useEffect, useRef } from "react";
+import { use, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMeeting, useUpdateMeeting, useDeleteMeeting } from "@/lib/hooks/use-meetings";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useUser } from "@/lib/hooks/use-users";
-import { useTimer, useStartTimer, usePauseTimer, useResumeTimer, useNextItem, useResetTimer, useEndTimer, useAddTime } from "@/lib/hooks/use-timer";
+import { useTimer, useStartTimer, usePauseTimer, useResumeTimer, useNextItem, useResetTimer, useEndTimer, useElapsedTime } from "@/lib/hooks/use-timer";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { outcomesApi, commentsApi, usersApi, outcomeNotesApi } from "@/lib/api";
+import { supabase } from "@/lib/supabase/client";
 import { AssigneePicker } from "@/components/assignee-picker";
 import { ScheduleEditor, DateEditor } from "@/components/schedule-editor";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -20,11 +21,11 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Play, Pause, SkipForward, RotateCcw, Timer as TimerIcon, CheckSquare, Plus, Trash2, Printer, Loader2, MessageSquare, Send, Share2, QrCode, FileText, X } from "lucide-react";
+import { ArrowLeft, Play, Pause, SkipForward, RotateCcw, Timer as TimerIcon, CheckSquare, Plus, Trash2, Printer, Loader2, MessageSquare, Send, Share2, QrCode, FileText, X, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import type { PrimaryOutcome, ActionItem, Comment as CommentType } from "@/lib/types";
-import { formatDuration, getErrorMsg } from "@/lib/utils";
+import { formatDuration, getErrorMsg, appUrl } from "@/lib/utils";
 import { MEETING_STATUS_BADGE, SUPER_ADMIN_ROLES } from "@/lib/types";
 import type { UserRole } from "@/lib/types";
 import { ADMIN_ROLES } from "@/lib/types";
@@ -47,45 +48,39 @@ export default function MeetingDetailPage({
   const nextItem = useNextItem();
   const resetTimer = useResetTimer();
   const endTimer = useEndTimer();
-  const addTime = useAddTime();
   const { user, role } = useAuth();
   const isAdmin = ADMIN_ROLES.includes(role as UserRole);
   const isSuperAdmin = SUPER_ADMIN_ROLES.includes(role as UserRole);
   const isHost = meeting?.facilitator_id === user?.id || meeting?.created_by === user?.id;
   const canEdit = isHost || isSuperAdmin;
   const { data: currentUser } = useUser(user?.id ?? "");
+  const { data: conflictMeetings } = useQuery({
+    queryKey: ["detail-room-conflict", meeting?.room_id, meeting?.scheduled_at, meeting?.scheduled_duration],
+    queryFn: async () => {
+      if (!meeting?.room_id || !meeting?.scheduled_at) return [];
+      const startTime = new Date(meeting.scheduled_at).getTime();
+      const endTime = startTime + meeting.scheduled_duration * 1000;
+      const { data, error } = await supabase
+        .from("meetings")
+        .select("id, title, scheduled_at, scheduled_duration")
+        .eq("room_id", meeting.room_id)
+        .is("deleted_at", null)
+        .not("status", "eq", "cancelled")
+        .lt("scheduled_at", new Date(endTime).toISOString());
+      if (error) { console.error("detail room conflict error", error); return []; }
+      return (data ?? []).filter((m) => {
+        if (m.id === meeting.id) return false;
+        const mEnd = new Date(m.scheduled_at).getTime() + m.scheduled_duration * 1000;
+        return mEnd > startTime;
+      });
+    },
+    enabled: !!meeting?.room_id && !!meeting?.scheduled_at,
+  });
   const deleteMeeting = useDeleteMeeting();
   const router = useRouter();
 
   // Timer live counting
-  const [displayTotal, setDisplayTotal] = useState(0);
-  const [displayItem, setDisplayItem] = useState(0);
-  const baseRef = useRef({ total: 0, item: 0 });
-  const stampRef = useRef<number>(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (!timer) return;
-    baseRef.current = { total: timer.elapsed_total, item: timer.elapsed_item };
-    stampRef.current = Date.now();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDisplayTotal(timer.elapsed_total);
-    setDisplayItem(timer.elapsed_item);
-  }, [timer, timer?.is_running, timer?.elapsed_total, timer?.elapsed_item]);
-
-  useEffect(() => {
-    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
-    if (!timer?.is_running) return;
-    intervalRef.current = setInterval(() => {
-      const delta = Math.floor((Date.now() - stampRef.current) / 1000);
-      setDisplayTotal(baseRef.current.total + delta);
-      setDisplayItem(baseRef.current.item + delta);
-    }, 200);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [timer?.is_running]);
-
-  const totalToShow = timer?.is_running ? displayTotal : (timer?.elapsed_total ?? 0);
-  const itemToShow = timer?.is_running ? displayItem : (timer?.elapsed_item ?? 0);
+  const { total: totalToShow, item: itemToShow } = useElapsedTime(timer);
 
   // Outcome form
   const { data: existingOutcome } = useQuery({
@@ -200,6 +195,7 @@ export default function MeetingDetailPage({
   const [inviteName, setInviteName] = useState("");
   const [inviteIndex, setInviteIndex] = useState(-1);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [dropOpen, setDropOpen] = useState(false);
 
   const inviteMutation = useMutation({
     mutationFn: ({ email, name }: { email: string; name?: string }) =>
@@ -280,6 +276,7 @@ export default function MeetingDetailPage({
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {meeting.department} &middot; {meeting.meeting_type}
+            {meeting.room && ` &middot; ${meeting.room.name}`}
             {meeting.scheduled_at && ` &middot; ${format(new Date(meeting.scheduled_at), "MMM d, yyyy h:mm a")}`}
           </p>
           <p className="text-sm text-muted-foreground">
@@ -298,7 +295,7 @@ export default function MeetingDetailPage({
               size="sm"
               className="gap-2"
               onClick={() => {
-                const url = `${window.location.origin}/live/${meeting.share_token}`;
+                const url = appUrl(`/live/${meeting.share_token}`);
                 navigator.clipboard.writeText(url);
                 toast.success("Live link copied to clipboard");
               }}
@@ -326,7 +323,7 @@ export default function MeetingDetailPage({
                       <span className="text-muted-foreground">Open to admins</span>
                       <Switch
                         checked={meeting.timer_open_to_all ?? false}
-                        onCheckedChange={(checked) => updateMeeting.mutate({ id, patch: { timer_open_to_all: checked } })}
+                        onCheckedChange={(checked) => updateMeeting.mutate({ id, patch: { timer_open_to_all: checked } }, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
                       />
                     </label>
                   )}
@@ -389,27 +386,7 @@ export default function MeetingDetailPage({
                       </Button>
                     )}
 
-                    {/* Add time */}
-                    <div className="flex gap-1 items-center">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-14 w-14 rounded-full text-xs"
-                        onClick={() => addTime.mutate({ meetingId: id, seconds: 60 }, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
-                        disabled={addTime.isPending}
-                      >
-                        +1m
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-14 w-14 rounded-full text-xs"
-                        onClick={() => addTime.mutate({ meetingId: id, seconds: 300 }, { onError: async (e) => toast.error(await getErrorMsg(e)) })}
-                        disabled={addTime.isPending}
-                      >
-                        +5m
-                      </Button>
-                    </div>
+
 
                     {/* End & Log */}
                     <Button
@@ -705,8 +682,29 @@ export default function MeetingDetailPage({
                 onSave={async (patch) => {
                   await updateMeeting.mutateAsync({ id, patch });
                 }}
-                disabled={!canEdit}
+                disabled={true}
               />
+              <div>
+                <p className="text-muted-foreground">Room</p>
+                <p className="font-medium">{meeting.room?.name ?? "No room"}</p>
+                {conflictMeetings && conflictMeetings.length > 0 && (
+                  <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      <span className="font-medium">Room conflict: </span>
+                      {conflictMeetings.map((c, i) => {
+                        const start = format(new Date(c.scheduled_at), "h:mm a");
+                        const end = format(new Date(new Date(c.scheduled_at).getTime() + c.scheduled_duration * 1000), "h:mm a");
+                        return (
+                          <span key={c.id}>
+                            {start}&ndash;{end} for &ldquo;{c.title}&rdquo;{i < conflictMeetings.length - 1 ? "; " : ""}
+                          </span>
+                        );
+                      })}
+                    </span>
+                  </div>
+                )}
+              </div>
               {meeting.vibe && (
                 <div>
                   <p className="text-muted-foreground">Vibe</p>
@@ -789,22 +787,42 @@ export default function MeetingDetailPage({
           )}
 
           {SUPER_ADMIN_ROLES.includes(currentUser?.role as UserRole) && (
-            <Button
-              className="w-full"
-              variant="destructive"
-              onClick={() => {
-                if (confirm("Archive this meeting? It will be hidden from all users.")) {
-                  deleteMeeting.mutate(id, {
-                    onSuccess: () => { toast.success("Meeting archived"); router.push("/meetings"); },
-                    onError: async (e) => toast.error(await getErrorMsg(e)),
-                  });
-                }
-              }}
-              disabled={deleteMeeting.isPending}
-            >
-              {deleteMeeting.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-              Archive Meeting
-            </Button>
+            <>
+              <Button
+                className="w-full"
+                variant="destructive"
+                onClick={() => setDropOpen(true)}
+                disabled={deleteMeeting.isPending}
+              >
+                {deleteMeeting.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                Drop meeting
+              </Button>
+              <Dialog open={dropOpen} onOpenChange={setDropOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Drop meeting</DialogTitle>
+                    <DialogDescription>
+                      This will permanently delete this meeting and all its data. This action cannot be undone.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter className="gap-2">
+                    <Button variant="outline" onClick={() => setDropOpen(false)}>Cancel</Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        setDropOpen(false);
+                        deleteMeeting.mutate(id, {
+                          onSuccess: () => { toast.success("Meeting dropped"); router.push("/meetings"); },
+                          onError: async (e) => toast.error(await getErrorMsg(e)),
+                        });
+                      }}
+                    >
+                      Drop permanently
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </>
           )}
         </div>
       </div>
@@ -886,10 +904,10 @@ export default function MeetingDetailPage({
             <DialogTitle>Scan to join</DialogTitle>
           </DialogHeader>
           <div className="flex justify-center py-6">
-            <QrCodeView url={`${window.location.origin}/live/${meeting.share_token}`} />
+            <QrCodeView url={appUrl(`/live/${meeting.share_token}`)} />
           </div>
           <div className="text-center text-sm text-muted-foreground break-all px-2 font-medium">
-            {window.location.origin}/live/{meeting.share_token}
+            {appUrl(`/live/${meeting.share_token}`)}
           </div>
         </DialogContent>
       </Dialog>

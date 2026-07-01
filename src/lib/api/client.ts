@@ -1,4 +1,4 @@
-import ky from "ky";
+import ky, { HTTPError } from "ky";
 import { supabase, FUNCTIONS_BASE } from "@/lib/supabase/client";
 
 async function getToken() {
@@ -19,6 +19,15 @@ export function api() {
           if (token) {
             request.headers.set("Authorization", `Bearer ${token}`);
           }
+        },
+      ],
+      beforeError: [
+        async ({ error }) => {
+          if (error instanceof HTTPError) {
+            const text = await error.response.clone().text().catch(() => "");
+            try { error.message = JSON.parse(text).error ?? text; } catch { error.message = text || error.message; }
+          }
+          return error;
         },
       ],
       afterResponse: [

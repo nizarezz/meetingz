@@ -3,23 +3,25 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useMeetings } from "@/lib/hooks/use-meetings";
+import { useTemplates, useDeleteTemplate } from "@/lib/hooks/use-templates";
 import { meetingsApi } from "@/lib/api";
 import { useRealtimeInvalidation } from "@/lib/hooks/use-realtime";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
-import { Plus, Search, Calendar, Clock, MoreVertical, Mic, CheckCircle, FileEdit, FileText, QrCode, Share2, ExternalLink, Download } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { cn, appUrl } from "@/lib/utils";
+import { Plus, Search, Calendar, Clock, MoreVertical, Mic, CheckCircle, FileText, QrCode, Share2, ExternalLink, Download, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { useAuth } from "@/components/providers/auth-provider";
-import { ADMIN_ROLES } from "@/lib/types";
-import type { UserRole } from "@/lib/types";
+import { ADMIN_ROLES, SUPER_ADMIN_ROLES } from "@/lib/types";
+import type { UserRole, Template, Meeting, Participant } from "@/lib/types";
 import QRCode from "qrcode";
 import { toast } from "sonner";
 
-type Tab = "upcoming" | "live" | "past" | "drafts";
+type Tab = "upcoming" | "live" | "past" | "templates";
 
 function googleCalUrl(m: { title: string; scheduled_at: string; scheduled_duration?: number }): string {
   const start = new Date(m.scheduled_at);
@@ -39,29 +41,34 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "upcoming", label: "Upcoming" },
   { key: "live", label: "Live" },
   { key: "past", label: "Past" },
-  { key: "drafts", label: "Drafts" },
+  { key: "templates", label: "Templates" },
 ];
 
 const ICON_MAP: Record<Tab, React.ElementType> = {
   upcoming: Calendar,
   live: Mic,
   past: CheckCircle,
-  drafts: FileEdit,
+  templates: FileText,
 };
 
 const TAB_BG: Record<Tab, string> = {
   upcoming: "bg-primary-container text-on-primary-container",
   live: "bg-error-container text-on-error-container",
   past: "bg-surface-variant text-outline",
-  drafts: "bg-surface-variant text-on-surface-variant",
+  templates: "bg-surface-variant text-on-surface-variant",
 };
 
 export default function MeetingsPage() {
   const { role } = useAuth();
   const isAdmin = ADMIN_ROLES.includes(role as UserRole);
+  const isSuperAdmin = SUPER_ADMIN_ROLES.includes(role as UserRole);
   const [tab, setTab] = useState<Tab>("upcoming");
   const [search, setSearch] = useState("");
   const { data, isLoading, error } = useMeetings({ perPage: 100 });
+  const { data: templatesData, isLoading: templatesLoading } = useTemplates();
+  const deleteTemplate = useDeleteTemplate();
+
+  const templates = useMemo(() => templatesData ?? [], [templatesData]);
 
   useRealtimeInvalidation([
     { channel: "meetings-list", table: "meetings", events: ["*"], queryKeys: [["meetings"]] },
@@ -70,6 +77,10 @@ export default function MeetingsPage() {
   const rawMeetings = useMemo(() => data?.data ?? [], [data]);
 
   const filtered = useMemo(() => {
+    if (tab === "templates") {
+      if (!search) return templates;
+      return templates.filter((t) => t.name.toLowerCase().includes(search.toLowerCase()));
+    }
     return rawMeetings.filter((m) => {
       const now = new Date();
       let match = true;
@@ -83,9 +94,6 @@ export default function MeetingsPage() {
         case "past":
           match = m.status === "completed" || m.status === "logged";
           break;
-        case "drafts":
-          match = m.status === "planned" && !m.scheduled_at;
-          break;
       }
       if (!match) return false;
       if (search) {
@@ -93,22 +101,23 @@ export default function MeetingsPage() {
       }
       return true;
     });
-  }, [rawMeetings, tab, search]);
+  }, [rawMeetings, templates, tab, search]);
 
   const countByTab = useMemo(() => {
-    const counts: Record<Tab, number> = { upcoming: 0, live: 0, past: 0, drafts: 0 };
+    const counts: Record<Tab, number> = { upcoming: 0, live: 0, past: 0, templates: 0 };
     for (const m of rawMeetings) {
       const now = new Date();
       if (m.status === "active") counts.live++;
       else if (m.status === "planned" && !!m.scheduled_at && new Date(m.scheduled_at) > now) counts.upcoming++;
       else if (m.status === "completed" || m.status === "logged") counts.past++;
-      else if (m.status === "planned" && !m.scheduled_at) counts.drafts++;
     }
+    counts.templates = templates.length;
     return counts;
-  }, [rawMeetings]);
+  }, [rawMeetings, templates]);
 
   const [qrOpen, setQrOpen] = useState(false);
   const [qrUrl, setQrUrl] = useState("");
+  const [templateToDelete, setTemplateToDelete] = useState<{ id: string; name: string } | null>(null);
 
   async function exportPastMeetings() {
     const past = rawMeetings.filter((m) => m.status === "completed" || m.status === "logged");
@@ -268,7 +277,7 @@ export default function MeetingsPage() {
         <div className="flex min-h-[40vh] items-center justify-center">
           <p className="text-sm text-destructive">Failed to load meetings</p>
         </div>
-      ) : isLoading ? (
+      ) : isLoading || (tab === "templates" && templatesLoading) ? (
           <>
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="bg-surface rounded-xl p-6 flex items-center gap-6 shadow-sm border border-transparent">
@@ -282,6 +291,50 @@ export default function MeetingsPage() {
               </div>
             ))}
           </>
+        ) : tab === "templates" ? (
+          filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-24 text-center">
+              <FileText className="h-12 w-12 text-muted-foreground mb-4" />
+              <p className="text-lg font-medium text-muted-foreground">
+                {search ? "No templates match your search" : "No templates yet"}
+              </p>
+              {!search && isAdmin && (
+                <Link href="/templates/new" className={buttonVariants({ className: "mt-4" })}>
+                  <Plus className="mr-2 h-4 w-4" /> New Template
+                </Link>
+              )}
+            </div>
+          ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {(filtered as Template[]).map((t) => (
+              <Link key={t.id} href={`/templates/${t.id}/edit`}>
+                <div className="bg-surface rounded-xl p-5 border border-border transition hover:shadow-md h-full cursor-pointer space-y-3">
+                  <div className="flex items-start justify-between">
+                    <h3 className="font-display text-base font-semibold">{t.name}</h3>
+                    {isSuperAdmin && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive shrink-0"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setTemplateToDelete({ id: t.id, name: t.name }); }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                  {t.description && (
+                    <p className="text-sm text-muted-foreground line-clamp-2">{t.description}</p>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    {t.department && <Badge variant="secondary">{t.department}</Badge>}
+                    {t.meeting_type && <Badge variant="outline">{t.meeting_type}</Badge>}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t.agenda_items?.length ?? 0} agenda items</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+          )
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <p className="text-lg font-medium text-muted-foreground">
@@ -296,9 +349,8 @@ export default function MeetingsPage() {
             )}
           </div>
         ) : (
-          filtered.map((m) => {
+          (filtered as Meeting[]).map((m) => {
             const isLive = m.status === "active";
-            const isDraft = tab === "drafts";
             const isPast = tab === "past";
             return (
               <div
@@ -307,9 +359,7 @@ export default function MeetingsPage() {
                   "bg-surface rounded-xl p-6 flex items-center justify-between transition-colors",
                   isLive
                     ? "shadow-sm border border-primary/20 hover:border-primary/40"
-                    : isDraft
-                      ? "border border-dashed border-outline-variant hover:border-primary/50 opacity-70 hover:opacity-100"
-                      : "shadow-sm border border-transparent hover:border-outline-variant/50",
+                    : "shadow-sm border border-transparent hover:border-outline-variant/50",
                 )}
               >
                 <Link href={`/meetings/${m.id}`} className="flex items-center gap-6 min-w-0 flex-1 cursor-pointer group">
@@ -335,11 +385,11 @@ export default function MeetingsPage() {
                         "px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider shrink-0",
                         isLive
                           ? "bg-error/10 text-error"
-                          : isDraft
+                          : isPast
                             ? "bg-surface-variant text-muted-foreground"
                             : "bg-primary-container text-on-primary-fixed-variant",
                       )}>
-                        {isLive ? "Live" : isDraft ? "Draft" : isPast ? "Finished" : "Scheduled"}
+                        {isLive ? "Live" : isPast ? "Finished" : "Scheduled"}
                       </span>
                     </div>
                     <div className="flex items-center text-muted-foreground text-sm gap-4 flex-wrap">
@@ -369,6 +419,11 @@ export default function MeetingsPage() {
                           &middot; {m.department}
                         </span>
                       )}
+                      {m.room && (
+                        <span className="flex items-center gap-1 text-xs">
+                          &middot; {m.room.name}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </Link>
@@ -376,7 +431,7 @@ export default function MeetingsPage() {
                 <div className="flex items-center gap-4 shrink-0 ml-4">
                   {m.participants && m.participants.length > 0 && (
                     <div className="hidden sm:flex -space-x-3">
-                      {m.participants.slice(0, 3).map((p) => (
+                      {m.participants.slice(0, 3).map((p: Participant) => (
                         <div
                           key={p.id}
                           className="w-9 h-9 rounded-full border-2 border-surface bg-primary-container flex items-center justify-center text-xs font-bold text-on-primary-container"
@@ -416,7 +471,7 @@ export default function MeetingsPage() {
                         {(m.share_token) && (
                           <DropdownMenuItem onClick={(e) => {
                             e.preventDefault(); e.stopPropagation();
-                            navigator.clipboard.writeText(`${window.location.origin}/live/${m.share_token}`);
+                            navigator.clipboard.writeText(appUrl(`/live/${m.share_token}`));
                             toast.success("Share link copied");
                           }}>
                             <Share2 className="h-4 w-4 mr-2" />
@@ -445,6 +500,27 @@ export default function MeetingsPage() {
       )}
 
       <QrDialog open={qrOpen} onOpenChange={setQrOpen} url={qrUrl} />
+
+      <Dialog open={!!templateToDelete} onOpenChange={(v) => { if (!v) setTemplateToDelete(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete template</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete &ldquo;{templateToDelete?.name}&rdquo;? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setTemplateToDelete(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => {
+              if (!templateToDelete) return;
+              deleteTemplate.mutate(templateToDelete.id, {
+                onSuccess: () => { toast.success("Template deleted"); setTemplateToDelete(null); },
+                onError: (err) => { toast.error(err.message); setTemplateToDelete(null); },
+              });
+            }}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

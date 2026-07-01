@@ -1,9 +1,10 @@
 import { ok, err, preflight, paginated } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
-import { resolveCaller } from "../_shared/auth.ts";
+import { resolveCaller, ADMIN_ROLES } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { parse, createCommentSchema } from "../_shared/validate.ts";
 import { captureException } from "../_shared/sentry.ts";
+import { audit } from "../_shared/audit.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return preflight();
@@ -11,6 +12,8 @@ Deno.serve(async (req: Request) => {
   try {
     const caller = await resolveCaller(req);
     const url = new URL(req.url);
+    const parts = url.pathname.replace(/^\/comments\/?/, "").split("/").filter(Boolean);
+    const commentId = parts[0] ?? null;
     const meetingId = url.searchParams.get("meeting_id");
     const svc = serviceClient();
 
@@ -72,6 +75,45 @@ Deno.serve(async (req: Request) => {
 
       if (insertErr) return err(insertErr.message);
       return ok(comment, 201);
+    }
+
+    if (req.method === "DELETE" && commentId) {
+      checkRateLimit(`comments:delete:${caller.team_id}`, 30, "comment deletions");
+
+      const { data: existing } = await svc
+        .from("comments")
+        .select("id, meeting_id, user_id")
+        .eq("id", commentId)
+        .eq("team_id", caller.team_id)
+        .single();
+
+      if (!existing) return err("Comment not found", 404);
+
+      const isAdmin = ADMIN_ROLES.includes(caller.role as any);
+
+      if (!isAdmin) {
+        const { data: meeting } = await caller.client
+          .from("meetings")
+          .select("created_by, facilitator_id")
+          .eq("id", existing.meeting_id)
+          .single();
+
+        if (!meeting) return err("Meeting not found", 404);
+
+        const isHost = meeting.facilitator_id === caller.id || meeting.created_by === caller.id;
+        if (!isHost) {
+          return err("Only admins or the meeting host can delete comments", 403);
+        }
+      }
+
+      const { error: delErr } = await svc.from("comments").delete().eq("id", commentId);
+      if (delErr) return err(delErr.message);
+
+      await audit(caller.id, caller.team_id, "comment_delete", "comment", commentId, {
+        meeting_id: existing.meeting_id,
+        user_id: existing.user_id,
+      });
+      return ok({ deleted: true });
     }
 
     return err("Method not allowed", 405);

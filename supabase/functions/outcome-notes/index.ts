@@ -1,6 +1,6 @@
 import { ok, err, preflight } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/supabase.ts";
-import { resolveCaller, requireRole, ADMIN_ROLES } from "../_shared/auth.ts";
+import { resolveCaller, requireRole, ADMIN_ROLES, SUPER_ADMIN_ROLES } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { parse, createOutcomeNoteSchema } from "../_shared/validate.ts";
 import { audit } from "../_shared/audit.ts";
@@ -94,8 +94,6 @@ Deno.serve(async (req: Request) => {
 
     // --- PATCH (update) ---
     if (req.method === "PATCH" && id) {
-      requireRole(caller, ADMIN_ROLES);
-
       const { data: existing } = await svc
         .from("outcome_notes")
         .select("meeting_id")
@@ -114,8 +112,9 @@ Deno.serve(async (req: Request) => {
       if (!meeting) return err("Meeting not found", 404);
 
       const isHost = meeting.facilitator_id === caller.id || meeting.created_by === caller.id;
-      if (!meeting.timer_open_to_all && !isHost) {
-        return err("Only the meeting host can manage this meeting", 403);
+      const isSuperAdmin = SUPER_ADMIN_ROLES.includes(caller.role as any);
+      if (!isHost && !isSuperAdmin) {
+        return err("Only the meeting host or a super admin can update notes", 403);
       }
 
       const body = await req.json();
