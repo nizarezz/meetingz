@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
-import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { computeElapsed } from "@/lib/hooks/use-timer";
@@ -338,30 +338,33 @@ function MeetingCard({
 
   return (
     <div
-      className={`group relative flex flex-1 cursor-pointer flex-col overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm transition-all duration-200 hover:shadow-md ${
-        active && timerRunning ? "border-amber-500/40 shadow-amber-500/10" : ""
+      className={`group relative flex flex-1 cursor-pointer flex-col overflow-hidden rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-200 hover:shadow-md ${
+        active && timerRunning ? "border-amber-500/40" : ""
       }`}
       onClick={onExpand}
     >
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          {active && (
-            <span className={`flex h-2 w-2 rounded-full ${timerRunning ? "bg-amber-500 animate-pulse" : "bg-muted-foreground/30"}`} />
-          )}
-          <CardTitle className="text-base font-medium">
-            {active ? "LIVE" : formatDate(meeting.scheduled_at)}
-          </CardTitle>
-        </div>
-      </CardHeader>
+      {/* Status bar */}
+      <div className={`flex items-center gap-2 px-5 py-2 text-xs font-medium uppercase tracking-wider ${
+        active
+          ? timerRunning ? "bg-amber-500/10 text-amber-500" : "bg-muted/50 text-muted-foreground"
+          : "text-muted-foreground/60"
+      }`}>
+        {active && (
+          <span className={`h-1.5 w-1.5 rounded-full ${timerRunning ? "bg-amber-500 animate-pulse" : "bg-muted-foreground"}`} />
+        )}
+        {active ? "LIVE" : "Planned"}
+        <span className="mx-1">&middot;</span>
+        {formatDate(meeting.scheduled_at)}
+        <span className="ml-auto">{formatTime(meeting.scheduled_at)}</span>
+      </div>
 
-      <CardContent className="space-y-4">
+      <CardContent className="flex flex-1 flex-col gap-3 p-5 pt-4">
+        {/* Title + meta */}
         <div>
-          <h2 className="text-xl font-bold leading-tight tracking-tight">
+          <h2 className="text-lg font-bold leading-tight tracking-tight">
             {meeting.title}
           </h2>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-muted-foreground">
-            <span>{formatTime(meeting.scheduled_at)}</span>
-            <span>&middot;</span>
+          <div className="mt-1 flex flex-wrap gap-x-2 text-xs text-muted-foreground">
             <span>{meetingDuration(meeting)} min</span>
             <span>&middot;</span>
             <span>{meeting.department}</span>
@@ -370,13 +373,15 @@ function MeetingCard({
           </div>
         </div>
 
-        {/* Timer section - matching the normal timer card exactly */}
+        <div className="flex-1" />
+
+        {/* Timer - matching normal card */}
         {hasTimer && (
-          <div className="text-center">
-            <p className="text-6xl font-mono font-bold tabular-nums tracking-tight">
+          <div className="text-center py-2">
+            <p className="text-5xl font-mono font-bold tabular-nums tracking-tight">
               {formatDuration(elapsedTotal)}
             </p>
-            <p className="mt-2 text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               {overBudget
                 ? `Over budget by ${formatDuration(elapsedTotal - scheduledDurationSec)}`
                 : `${formatDuration(scheduledDurationSec - elapsedTotal)} remaining`}
@@ -384,18 +389,35 @@ function MeetingCard({
           </div>
         )}
 
+        {/* Agenda items - first 3 */}
+        {meeting.agenda_items && meeting.agenda_items.length > 0 && (
+          <div className="space-y-1">
+            {meeting.agenda_items.slice(0, 3).map((item, idx) => (
+              <div key={idx} className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted-foreground/20 text-[10px] font-medium text-muted-foreground">
+                  {idx + 1}
+                </span>
+                <span className="flex-1 truncate text-sm">{item.title}</span>
+                {item.duration > 0 && (
+                  <span className="shrink-0 text-xs text-muted-foreground">{item.duration} min</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Room band */}
         {meeting.room && (
-          <div className={`-mx-6 -mb-6 mt-2 flex items-center gap-2 px-6 py-3 text-sm ${
+          <div className={`-mx-5 -mb-5 mt-2 flex items-center gap-2 px-5 py-2.5 text-sm ${
             timerRunning
-              ? "bg-amber-500/10 text-amber-500 font-semibold"
+              ? "bg-amber-500/10 text-amber-600 font-semibold"
               : "text-muted-foreground"
           }`}>
             <span className={`h-2 w-2 rounded-full ${
               timerRunning ? "bg-amber-500 animate-pulse" : "bg-muted-foreground"
             }`} />
             {meeting.room.name}
-            {timerRunning && <span className="text-xs font-normal text-amber-500/70">\u2022 Running</span>}
+            {timerRunning && <span className="text-xs font-normal">\u2022 Running</span>}
           </div>
         )}
       </CardContent>
