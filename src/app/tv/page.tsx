@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
-import { CardContent } from "@/components/ui/card";
+import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { computeElapsed } from "@/lib/hooks/use-timer";
@@ -338,63 +338,45 @@ function MeetingCard({
 
   return (
     <div
-      className={`group relative flex flex-1 cursor-pointer flex-col overflow-hidden rounded-2xl border bg-white/[0.04] backdrop-blur-sm transition-all duration-200 hover:bg-white/[0.07] ${
-        active
-          ? timerRunning
-            ? "border-amber-500/40 shadow-lg shadow-amber-500/10"
-            : "border-white/10"
-          : "border-white/5"
+      className={`group relative flex flex-1 cursor-pointer flex-col overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm transition-all duration-200 hover:shadow-md ${
+        active && timerRunning ? "border-amber-500/40 shadow-amber-500/10" : ""
       }`}
       onClick={onExpand}
     >
-      <CardContent className="flex flex-1 flex-col p-6">
-        {/* Status badge */}
-        <div className="flex items-center gap-3">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
           {active && (
-            <span className={`flex h-2.5 w-2.5 rounded-full ${timerRunning ? "bg-amber-400 animate-pulse" : "bg-white/20"}`} />
+            <span className={`flex h-2 w-2 rounded-full ${timerRunning ? "bg-amber-500 animate-pulse" : "bg-muted-foreground/30"}`} />
           )}
-          <Badge
-            variant={active ? "default" : "secondary"}
-            className={`px-3 py-1 text-sm ${active ? "bg-amber-500 hover:bg-amber-500" : ""}`}
-          >
+          <CardTitle className="text-base font-medium">
             {active ? "LIVE" : formatDate(meeting.scheduled_at)}
-          </Badge>
+          </CardTitle>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        <div>
+          <h2 className="text-xl font-bold leading-tight tracking-tight">
+            {meeting.title}
+          </h2>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-muted-foreground">
+            <span>{formatTime(meeting.scheduled_at)}</span>
+            <span>&middot;</span>
+            <span>{meetingDuration(meeting)} min</span>
+            <span>&middot;</span>
+            <span>{meeting.department}</span>
+            {meeting.meeting_type && <><span>&middot;</span><span>{meeting.meeting_type}</span></>}
+            {meeting.facilitator && <><span>&middot;</span><span>{meeting.facilitator.name}</span></>}
+          </div>
         </div>
 
-        {/* Title */}
-        <h2 className="mt-3 text-3xl font-bold leading-tight tracking-tight">
-          {meeting.title}
-        </h2>
-
-        {/* Meta */}
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-base text-white/60">
-          <span>{formatTime(meeting.scheduled_at)}</span>
-          <span className="text-white/20">&middot;</span>
-          <span>{meetingDuration(meeting)} min</span>
-          <span className="text-white/20">&middot;</span>
-          <Badge variant="outline" className="border-white/10 text-white/60 text-sm">
-            {meeting.department}
-          </Badge>
-          <Badge variant="outline" className="border-white/10 text-white/60 text-sm">
-            {meeting.meeting_type}
-          </Badge>
-          {meeting.facilitator && (
-            <>
-              <span className="text-white/20">&middot;</span>
-              <span>{meeting.facilitator.name}</span>
-            </>
-          )}
-        </div>
-
-        <div className="flex-1" />
-
-        {/* Timer display - matching normal timer card style */}
+        {/* Timer section - matching the normal timer card exactly */}
         {hasTimer && (
           <div className="text-center">
-            <p className="text-4xl font-mono font-bold tabular-nums tracking-tight">
+            <p className="text-6xl font-mono font-bold tabular-nums tracking-tight">
               {formatDuration(elapsedTotal)}
             </p>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-2 text-muted-foreground">
               {overBudget
                 ? `Over budget by ${formatDuration(elapsedTotal - scheduledDurationSec)}`
                 : `${formatDuration(scheduledDurationSec - elapsedTotal)} remaining`}
@@ -404,16 +386,16 @@ function MeetingCard({
 
         {/* Room band */}
         {meeting.room && (
-          <div className={`-mx-6 -mb-6 mt-4 flex items-center gap-2.5 px-6 py-3.5 text-base ${
+          <div className={`-mx-6 -mb-6 mt-2 flex items-center gap-2 px-6 py-3 text-sm ${
             timerRunning
               ? "bg-amber-500/10 text-amber-500 font-semibold"
               : "text-muted-foreground"
           }`}>
-            <span className={`h-2.5 w-2.5 rounded-full ${
+            <span className={`h-2 w-2 rounded-full ${
               timerRunning ? "bg-amber-500 animate-pulse" : "bg-muted-foreground"
             }`} />
             {meeting.room.name}
-            {timerRunning && <span className="text-sm font-normal text-amber-500/70">\u2022 Running</span>}
+            {timerRunning && <span className="text-xs font-normal text-amber-500/70">\u2022 Running</span>}
           </div>
         )}
       </CardContent>
