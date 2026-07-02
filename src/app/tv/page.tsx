@@ -229,40 +229,27 @@ export default function TvPage() {
             {m?.status === "active" ? "LIVE" : formatDate(m?.scheduled_at ?? null)}
           </Badge>
 
-          {/* Timer display - matches the normal card: text-6xl, monospace, bold */}
+          {/* Timer display - matches normal timer card: text-6xl, no color, muted subtitle */}
           <div className="text-center">
-            <p className={`font-mono font-bold tabular-nums tracking-tight ${
-              isRunning ? "text-7xl md:text-8xl text-amber-400" : "text-6xl text-white/30"
-            }`}>
+            <p className="text-6xl font-mono font-bold tabular-nums tracking-tight">
               {formatDuration(el.total)}
             </p>
-            <p className="mt-3 text-lg text-white/50">
+            <p className="mt-2 text-muted-foreground">
               {el.total > (m?.scheduled_duration ?? 0) * 60
                 ? `Over budget by ${formatDuration(el.total - (m?.scheduled_duration ?? 0) * 60)}`
                 : `${formatDuration((m?.scheduled_duration ?? 0) * 60 - el.total)} remaining`}
             </p>
           </div>
-
-          {/* Active item (if any) - matches the normal card's active item section */}
-          {td?.is_running && (
-            <div className="mt-6 text-center text-sm text-white/50 border border-white/10 rounded-lg px-5 py-3">
-              <span className="font-medium text-white">Running</span>
-              <span className="mx-2">&middot;</span>
-              <span>Timer active</span>
-            </div>
-          )}
         </div>
 
         {/* Room band */}
         {m?.room && (
-          <div className={`flex items-center justify-center gap-2 px-8 py-4 text-base font-semibold ${
-            isRunning ? "bg-amber-500/10 text-amber-400" : "bg-white/5 text-white/40"
+          <div className={`flex items-center justify-center gap-2 px-8 py-4 text-base ${
+            isRunning ? "bg-amber-500/10 text-amber-500 font-semibold" : "text-muted-foreground"
           }`}>
-            <span className={`h-2 w-2 rounded-full ${isRunning ? "bg-amber-400" : "bg-white/20"}`} />
+            <span className={`h-2 w-2 rounded-full ${isRunning ? "bg-amber-500 animate-pulse" : "bg-muted-foreground"}`} />
             {m.room.name}
-            <span className="text-sm font-normal">
-              {isRunning ? "\u2022 Running" : ""}
-            </span>
+            {isRunning && <span className="text-sm font-normal text-amber-500/70">\u2022 Running</span>}
           </div>
         )}
       </div>
@@ -404,12 +391,10 @@ function MeetingCard({
         {/* Timer display - matching normal timer card style */}
         {hasTimer && (
           <div className="text-center">
-            <p className={`font-mono font-bold tabular-nums tracking-tight ${
-              timerRunning ? "text-5xl text-amber-400" : "text-4xl text-white/30"
-            }`}>
+            <p className="text-4xl font-mono font-bold tabular-nums tracking-tight">
               {formatDuration(elapsedTotal)}
             </p>
-            <p className="mt-1 text-sm text-white/40">
+            <p className="mt-1 text-sm text-muted-foreground">
               {overBudget
                 ? `Over budget by ${formatDuration(elapsedTotal - scheduledDurationSec)}`
                 : `${formatDuration(scheduledDurationSec - elapsedTotal)} remaining`}
@@ -417,42 +402,18 @@ function MeetingCard({
           </div>
         )}
 
-        {/* Agenda */}
-        {meeting.agenda_items && meeting.agenda_items.length > 0 && (
-          <div className="mt-4 space-y-1">
-            <p className="text-xs font-medium uppercase tracking-wider text-white/30">Agenda</p>
-            <div className="space-y-1">
-              {meeting.agenda_items.slice(0, 4).map((item, idx) => (
-                <div key={idx} className="flex items-center gap-3 rounded-lg bg-white/[0.03] px-3 py-2">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/10 text-xs font-medium text-white/50">
-                    {idx + 1}
-                  </span>
-                  <span className="flex-1 text-base truncate">{item.title}</span>
-                  {item.duration > 0 && (
-                    <span className="text-sm text-white/30">{item.duration} min</span>
-                  )}
-                </div>
-              ))}
-              {meeting.agenda_items.length > 4 && (
-                <p className="text-sm text-white/30 pt-1">+{meeting.agenda_items.length - 4} more</p>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Room band */}
         {meeting.room && (
-          <div className={`-mx-6 -mb-6 mt-4 flex items-center gap-2.5 px-6 py-3.5 text-base font-semibold ${
+          <div className={`-mx-6 -mb-6 mt-4 flex items-center gap-2.5 px-6 py-3.5 text-base ${
             timerRunning
-              ? "bg-amber-500/10 text-amber-400"
-              : active ? "bg-white/[0.03] text-white/50"
-              : "bg-white/[0.02] text-white/30"
+              ? "bg-amber-500/10 text-amber-500 font-semibold"
+              : "text-muted-foreground"
           }`}>
             <span className={`h-2.5 w-2.5 rounded-full ${
-              timerRunning ? "bg-amber-400 animate-pulse" : "bg-white/15"
+              timerRunning ? "bg-amber-500 animate-pulse" : "bg-muted-foreground"
             }`} />
             {meeting.room.name}
-            {timerRunning && <span className="text-sm font-normal">\u2022 Running</span>}
+            {timerRunning && <span className="text-sm font-normal text-amber-500/70">\u2022 Running</span>}
           </div>
         )}
       </CardContent>
