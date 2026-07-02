@@ -3,13 +3,13 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
-import { CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { computeElapsed } from "@/lib/hooks/use-timer";
 import { formatDuration, appUrl } from "@/lib/utils";
 import { timerApi } from "@/lib/api/timer";
 import { toDataURL as qrToDataURL } from "qrcode";
+import { Timer, ArrowLeft, ExternalLink, Radio } from "lucide-react";
 
 interface TvMeeting {
   id: string;
@@ -23,17 +23,6 @@ interface TvMeeting {
   facilitator: { name: string } | null;
   agenda_items: { title: string; duration: number }[];
   share_token: string | null;
-}
-
-function formatDate(iso: string | null) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const today = new Date();
-  if (d.toDateString() === today.toDateString()) return "Today";
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  if (d.toDateString() === tomorrow.toDateString()) return "Tomorrow";
-  return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 }
 
 function formatTime(iso: string | null) {
@@ -72,7 +61,7 @@ export default function TvPage() {
   // Generate QR code when there's exactly 1 meeting
   useEffect(() => {
     if (meetings.length === 1 && meetings[0].share_token) {
-      qrToDataURL(appUrl(`/live/${meetings[0].share_token}`), { width: 200, margin: 1 })
+      qrToDataURL(appUrl(`/live/${meetings[0].share_token}`), { width: 240, margin: 1 })
         .then(setQrDataUrl)
         .catch(() => setQrDataUrl(null));
     } else {
@@ -198,59 +187,66 @@ export default function TvPage() {
 
     return (
       <div className="flex min-h-screen flex-col">
-        {/* Header with back arrow */}
-        <div className="flex items-center justify-between px-8 pt-6">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-white/60 hover:text-white gap-1"
-            onClick={() => setFullscreenId(null)}
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-            Back
+        {/* Header */}
+        <div className="flex items-center justify-between px-safe-area py-stack-md">
+          <Button variant="ghost" size="sm" className="gap-2 text-on-surface-variant hover:text-primary" onClick={() => setFullscreenId(null)}>
+            <ArrowLeft className="h-4 w-4" />
+            <span className="text-xs uppercase tracking-widest font-semibold">Dashboard</span>
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-white/40 hover:text-white"
-            onClick={() => router.push(`/meetings/${fullscreenId}`)}
-          >
-            Open details &rarr;
+          <Button variant="link" size="sm" className="gap-1 text-on-surface-variant hover:text-primary no-underline" onClick={() => router.push(`/meetings/${fullscreenId}`)}>
+            Open details
+            <ExternalLink className="h-3 w-3" />
           </Button>
         </div>
 
-        {/* Timer section - matching the normal timer card style */}
-        <div className="flex flex-1 flex-col items-center justify-center px-8 -mt-12">
-          <h1 className="mb-2 text-4xl font-bold tracking-tight">{m?.title}</h1>
-          <Badge
-            variant={m?.status === "active" ? "default" : "secondary"}
-            className={`mb-6 px-3 py-1 ${m?.status === "active" ? "bg-amber-500" : ""}`}
-          >
-            {m?.status === "active" ? "LIVE" : formatDate(m?.scheduled_at ?? null)}
-          </Badge>
+        {/* Main content */}
+        <div className="flex flex-1 flex-col items-center justify-center px-safe-area -mt-12">
+          {/* Live badge */}
+          {m?.status === "active" && (
+            <div className="mb-stack-md">
+              <div className="relative flex items-center bg-primary-container text-on-primary-container px-5 py-1.5 rounded-full text-xs uppercase tracking-widest font-semibold">
+                <span className="w-2 h-2 bg-on-primary-container rounded-full mr-3 animate-pulse" />
+                LIVE
+              </div>
+            </div>
+          )}
 
-          {/* Timer display - matches normal timer card: text-6xl, no color, muted subtitle */}
-          <div className="text-center">
-            <p className="text-6xl font-mono font-bold tabular-nums tracking-tight">
+          {/* Title */}
+          <h1 className="font-headline-xl text-headline-xl text-on-background text-center max-w-5xl mb-stack-sm tracking-tight">
+            {m?.title}
+          </h1>
+
+          {/* Timer */}
+          <div className="flex flex-col items-center">
+            <div className="font-mono text-8xl md:text-9xl text-primary tracking-tighter select-none py-stack-sm">
               {formatDuration(el.total)}
-            </p>
-            <p className="mt-2 text-muted-foreground">
-              {el.total > (m?.scheduled_duration ?? 0) * 60
-                ? `Over budget by ${formatDuration(el.total - (m?.scheduled_duration ?? 0) * 60)}`
-                : `${formatDuration((m?.scheduled_duration ?? 0) * 60 - el.total)} remaining`}
-            </p>
+            </div>
+            <div className="flex items-center gap-2 text-on-surface-variant">
+              <Timer className="h-4 w-4 text-primary" />
+              <span>
+                Remaining <span className="text-on-background font-bold">{formatDuration(Math.max((m?.scheduled_duration ?? 0) * 60 - el.total, 0))}</span>
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Room band */}
+        {/* Footer room band */}
         {m?.room && (
-          <div className={`flex items-center justify-center gap-2 px-8 py-4 text-base ${
-            isRunning ? "bg-amber-500/10 text-amber-500 font-semibold" : "text-muted-foreground"
-          }`}>
-            <span className={`h-2 w-2 rounded-full ${isRunning ? "bg-amber-500 animate-pulse" : "bg-muted-foreground"}`} />
-            {m.room.name}
-            {isRunning && <span className="text-sm font-normal text-amber-500/70">\u2022 Running</span>}
-          </div>
+          <footer className={`w-full px-safe-area h-20 flex items-center justify-between ${isRunning ? "border-t-4 border-primary bg-surface-container-low" : "bg-surface-container-low border-t border-outline-variant"}`}>
+            <div className="flex items-center gap-stack-md">
+              <div className={`relative flex items-center justify-center w-8 h-8`}>
+                <div className={`w-4 h-4 rounded-full ${isRunning ? "bg-primary shadow-[0_0_15px_rgba(142,207,158,0.5)]" : "bg-outline"} z-10`} />
+              </div>
+              <div>
+                <div className="text-headline-lg text-headline-lg text-on-surface leading-none">
+                  {m.room.name}
+                </div>
+                <div className="text-xs uppercase tracking-widest text-on-surface-variant mt-1">
+                  {isRunning ? "Running" : "Not running"}
+                </div>
+              </div>
+            </div>
+          </footer>
         )}
       </div>
     );
@@ -258,34 +254,33 @@ export default function TvPage() {
 
   // Normal two-card view
   return (
-    <div className="flex h-screen flex-col p-8 md:p-12">
+    <div className="flex h-screen flex-col p-6 md:p-10">
       {/* Header */}
-      <div className="flex items-center gap-4 border-b border-white/10 pb-6">
-        <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-white/10 text-2xl font-bold">
-          {teamName.charAt(0) || "M"}
-        </div>
-        <div>
-          <h1 className="text-4xl font-bold tracking-tight">{teamName || "Meetingz"}</h1>
-          <p className="text-lg text-white/60">
+      <header className="flex justify-between items-end mb-stack-lg border-none">
+        <div className="flex flex-col">
+          <h1 className="font-headline-xl text-headline-xl text-primary tracking-tighter">{teamName || "Meetingz"}</h1>
+          <p className="text-xs text-on-surface-variant uppercase tracking-widest mt-2">
             {now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
           </p>
         </div>
-        <div className="ml-auto text-right">
-          <p className="text-5xl font-light tabular-nums tracking-wider">
+        <div className="text-right">
+          <p className="font-mono text-5xl text-on-surface leading-none">
             {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </p>
         </div>
-      </div>
+      </header>
 
-      {/* Cards */}
-      <div className="mt-8 flex flex-1 gap-8">
+      {/* Grid */}
+      <div className="grid grid-cols-12 gap-gutter flex-1">
+        {/* No meetings */}
         {meetings.length === 0 && (
-          <div className="flex w-full flex-col items-center justify-center gap-4">
-            <p className="text-2xl text-white/40">No meetings planned for today</p>
-            <p className="text-lg text-white/20">Plan a meeting to get started</p>
+          <div className="col-span-12 flex flex-col items-center justify-center">
+            <p className="text-2xl text-on-surface-variant">No meetings planned for today</p>
+            <p className="text-on-surface-variant/60 mt-2">Plan a meeting to get started</p>
           </div>
         )}
 
+        {/* Meeting card */}
         {meetings[0] && (
           <MeetingCard
             meeting={meetings[0]}
@@ -296,6 +291,7 @@ export default function TvPage() {
           />
         )}
 
+        {/* Second card: meeting or QR fallback */}
         {meetings.length >= 2 ? (
           <MeetingCard
             meeting={meetings[1]}
@@ -307,13 +303,14 @@ export default function TvPage() {
         ) : meetings.length === 1 && qrDataUrl ? (
           <QrFallbackCard meeting={meetings[0]} qrDataUrl={qrDataUrl} />
         ) : meetings.length === 1 ? (
-          <div className="flex-1" />
+          <div className="col-span-6" />
         ) : null}
       </div>
 
-      <div className="mt-6 border-t border-white/10 pt-4 text-center text-sm text-white/30">
-        Auto-updates every 30s
-      </div>
+      {/* Footer */}
+      <footer className="mt-auto py-stack-sm flex justify-between items-center border-t border-outline-variant">
+        <span className="text-xs text-on-surface-variant">Auto-updates every 30s</span>
+      </footer>
     </div>
   );
 }
@@ -337,107 +334,126 @@ function MeetingCard({
   const hasTimer = active && elapsed !== undefined;
 
   return (
-    <div
-      className={`group relative flex flex-1 cursor-pointer flex-col overflow-hidden rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-200 hover:shadow-md ${
-        active && timerRunning ? "border-amber-500/40" : ""
+    <section
+      className={`col-span-6 bg-surface-container overflow-hidden flex flex-col rounded-xl shadow-2xl cursor-pointer transition-all duration-200 hover:shadow-md ${
+        active && timerRunning ? "border-l-[12px] border-primary" : "border-l-[12px] border-outline-variant"
       }`}
       onClick={onExpand}
     >
-      {/* Status bar */}
-      <div className={`flex items-center gap-2 px-5 py-2 text-xs font-medium uppercase tracking-wider ${
-        active
-          ? timerRunning ? "bg-amber-500/10 text-amber-500" : "bg-muted/50 text-muted-foreground"
-          : "text-muted-foreground/60"
-      }`}>
-        {active && (
-          <span className={`h-1.5 w-1.5 rounded-full ${timerRunning ? "bg-amber-500 animate-pulse" : "bg-muted-foreground"}`} />
-        )}
-        {active ? "LIVE" : "Planned"}
-        <span className="mx-1">&middot;</span>
-        {formatDate(meeting.scheduled_at)}
-        <span className="ml-auto">{formatTime(meeting.scheduled_at)}</span>
-      </div>
-
-      <CardContent className="flex flex-1 flex-col gap-3 p-5 pt-4">
-        {/* Title + meta */}
-        <div>
-          <h2 className="text-lg font-bold leading-tight tracking-tight">
-            {meeting.title}
-          </h2>
-          <div className="mt-1 flex flex-wrap gap-x-2 text-xs text-muted-foreground">
-            <span>{meetingDuration(meeting)} min</span>
-            <span>&middot;</span>
-            <span>{meeting.department}</span>
-            {meeting.meeting_type && <><span>&middot;</span><span>{meeting.meeting_type}</span></>}
-            {meeting.facilitator && <><span>&middot;</span><span>{meeting.facilitator.name}</span></>}
-          </div>
+      <div className="p-card-padding flex-1 flex flex-col">
+        {/* Status badge + elapsed */}
+        <div className="flex items-center justify-between w-full mb-stack-lg">
+          {active ? (
+            <div className="relative flex items-center">
+              <div className="bg-primary text-primary-foreground px-5 py-2 rounded-full flex items-center gap-2 text-sm font-semibold">
+                <Radio className="h-4 w-4 fill-current" />
+                LIVE
+              </div>
+            </div>
+          ) : (
+            <Badge variant="secondary" className="text-xs uppercase tracking-widest">
+              Planned
+            </Badge>
+          )}
+          {hasTimer && (
+            <div className="flex flex-col items-end">
+              <span className="text-xs text-on-surface-variant uppercase tracking-widest">Elapsed</span>
+              <span className="font-mono text-sm text-primary">{formatDuration(elapsedTotal)}</span>
+            </div>
+          )}
         </div>
 
-        <div className="flex-1" />
-
-        {/* Timer - matching normal card */}
-        {hasTimer && (
-          <div className="text-center py-2">
-            <p className="text-5xl font-mono font-bold tabular-nums tracking-tight">
-              {formatDuration(elapsedTotal)}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
+        {/* Title + timer */}
+        <div className="flex flex-col items-center text-center mb-stack-lg">
+          <h2 className="text-headline-md font-bold text-on-surface mb-4 max-w-2xl leading-tight">
+            {meeting.title}
+          </h2>
+          {hasTimer && (
+            <div className="bg-surface-container-low px-6 py-3 rounded-xl border border-outline-variant/30 shadow-lg">
+              <span className="font-mono text-6xl md:text-7xl text-primary tracking-tighter">
+                {formatDuration(elapsedTotal)}
+              </span>
+            </div>
+          )}
+          {hasTimer && (
+            <p className="mt-3 text-sm text-on-surface-variant">
               {overBudget
                 ? `Over budget by ${formatDuration(elapsedTotal - scheduledDurationSec)}`
                 : `${formatDuration(scheduledDurationSec - elapsedTotal)} remaining`}
             </p>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Agenda items - first 3 */}
+        {/* Meta info */}
+        <div className="flex items-center justify-center gap-3 text-sm text-on-surface-variant mb-stack-lg">
+          <span>{formatTime(meeting.scheduled_at)}</span>
+          <span className="w-1 h-1 rounded-full bg-outline-variant" />
+          <span>{meetingDuration(meeting)} min</span>
+          <span className="w-1 h-1 rounded-full bg-outline-variant" />
+          <span>{meeting.department}</span>
+          {meeting.meeting_type && <><span className="w-1 h-1 rounded-full bg-outline-variant" /><span>{meeting.meeting_type}</span></>}
+          {meeting.facilitator && <><span className="w-1 h-1 rounded-full bg-outline-variant" /><span>{meeting.facilitator.name}</span></>}
+        </div>
+
+        <div className="flex-1" />
+
+        {/* Agenda items */}
         {meeting.agenda_items && meeting.agenda_items.length > 0 && (
-          <div className="space-y-1">
-            {meeting.agenda_items.slice(0, 3).map((item, idx) => (
-              <div key={idx} className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted-foreground/20 text-[10px] font-medium text-muted-foreground">
-                  {idx + 1}
-                </span>
-                <span className="flex-1 truncate text-sm">{item.title}</span>
-                {item.duration > 0 && (
-                  <span className="shrink-0 text-xs text-muted-foreground">{item.duration} min</span>
-                )}
-              </div>
-            ))}
+          <div className="w-full max-w-md mx-auto bg-surface-container-high/50 p-5 rounded-xl border border-outline-variant/20">
+            <h3 className="text-xs text-primary border-b border-outline-variant pb-3 mb-3 uppercase tracking-widest font-semibold">Agenda</h3>
+            <ul className="space-y-3">
+              {meeting.agenda_items.slice(0, 3).map((item, idx) => (
+                <li key={idx} className="flex items-center gap-3">
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${idx === 0 ? "bg-primary/20" : "bg-surface-variant"}`}>
+                    <span className={`text-xs ${idx === 0 ? "text-primary" : "text-on-surface-variant"}`}>
+                      {idx + 1}
+                    </span>
+                  </div>
+                  <span className="text-sm text-on-surface">{item.title}</span>
+                  {item.duration > 0 && (
+                    <span className="text-xs text-on-surface-variant ml-auto">{item.duration} min</span>
+                  )}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
+      </div>
 
-        {/* Room band */}
-        {meeting.room && (
-          <div className={`-mx-5 -mb-5 mt-2 flex items-center gap-2 px-5 py-2.5 text-sm ${
-            timerRunning
-              ? "bg-amber-500/10 text-amber-600 font-semibold"
-              : "text-muted-foreground"
-          }`}>
-            <span className={`h-2 w-2 rounded-full ${
-              timerRunning ? "bg-amber-500 animate-pulse" : "bg-muted-foreground"
-            }`} />
-            {meeting.room.name}
-            {timerRunning && <span className="text-xs font-normal">\u2022 Running</span>}
+      {/* Bottom status bar */}
+      {meeting.room && (
+        <div className={`px-card-padding py-4 flex items-center justify-between ${active && timerRunning ? "bg-surface-container-high border-t border-outline-variant" : "bg-surface-container-high/50 border-t border-outline-variant"}`}>
+          <div className="flex items-center gap-3">
+            <div className={`w-2 h-2 rounded-full ${timerRunning ? "bg-primary shadow-[0_0_8px_rgba(142,207,158,0.6)]" : "bg-outline"}`} />
+            <span className={`text-sm font-semibold ${timerRunning ? "text-primary" : "text-on-surface-variant"}`}>
+              {meeting.room.name}
+              {timerRunning && " \u2022 Running"}
+            </span>
           </div>
-        )}
-      </CardContent>
-    </div>
+        </div>
+      )}
+    </section>
   );
 }
 
 function QrFallbackCard({ meeting, qrDataUrl }: { meeting: TvMeeting; qrDataUrl: string }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-5 rounded-2xl border border-white/5 bg-white/[0.02] backdrop-blur-sm">
-      <p className="text-center text-lg text-white/40">Scan to join</p>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={qrDataUrl}
-        alt="QR code"
-        className="h-48 w-48 rounded-xl bg-white p-2"
-      />
-      <p className="text-center text-base text-white/30 max-w-xs truncate">
-        {meeting.title}
-      </p>
-    </div>
+    <section className="col-span-6 bg-surface-container-low border border-outline-variant flex flex-col rounded-xl">
+      <div className="p-card-padding flex flex-col h-full items-center justify-center text-center">
+        <h2 className="font-headline-lg text-headline-lg text-on-surface mb-stack-sm">Scan to join</h2>
+        <p className="text-on-surface-variant mb-stack-lg max-w-sm">Access meeting notes, participant list, and screen sharing directly from your device.</p>
+        <div className="bg-white p-5 rounded-xl shadow-lg mb-stack-lg border border-outline-variant/30">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={qrDataUrl}
+            alt="QR code"
+            className="w-48 h-48"
+          />
+          <div className="mt-3 text-center text-xs text-slate-800 border-t border-slate-200 pt-3 uppercase tracking-widest font-semibold">
+            {meeting.title}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
